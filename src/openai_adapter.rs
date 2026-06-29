@@ -1,9 +1,9 @@
-//! OpenAI protocol adapter layer — bidirectional conversion between OpenAI JSON and ds_core internal format
+//! OpenAI 协议适配层 —— OpenAI JSON 与 ds_core 内部格式的双向转换
 //!
-//! This module is responsible for converting OpenAI-compatible HTTP requests to ds_core internal format,
-//! and converting ds_core responses to OpenAI-compatible JSON format.
+//! 本模块负责将 OpenAI 兼容的 HTTP 请求转换为 ds_core 内部格式，
+//! 并将 ds_core 的响应转换为 OpenAI 兼容的 JSON 格式。
 //!
-//! Exposes a minimal public interface: OpenAIAdapter, OpenAIAdapterError
+//! 对外暴露最小接口：OpenAIAdapter, OpenAIAdapterError
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,14 +21,14 @@ pub(crate) mod types;
 
 pub use types::{ChatCompletionsRequest, ChatCompletionsResponse, ChatCompletionsResponseChunk};
 
-/// Streaming response type (SSE byte stream)
+/// 流式响应类型（SSE 字节流）
 pub type StreamResponse = Pin<Box<dyn Stream<Item = Result<Bytes, OpenAIAdapterError>> + Send>>;
 
-/// Streaming response struct stream
+/// 流式响应结构体流
 pub type ChunkStream =
     Pin<Box<dyn Stream<Item = Result<ChatCompletionsResponseChunk, OpenAIAdapterError>> + Send>>;
 
-/// Chat Completions unified output
+/// Chat Completions 统一输出
 pub enum ChatOutput {
     Stream(ChunkStream),
     Json(ChatCompletionsResponse),
@@ -41,7 +41,7 @@ pub struct ChatResult<T> {
     pub prompt_tokens: u32,
 }
 
-/// OpenAI adapter
+/// OpenAI 适配器
 pub struct OpenAIAdapter {
     ds_core: Arc<DsCore>,
     model_types: tokio::sync::RwLock<Vec<String>>,
@@ -55,7 +55,7 @@ pub struct OpenAIAdapter {
 }
 
 impl OpenAIAdapter {
-    /// Create adapter instance
+    /// 创建适配器实例
     pub async fn new(config: &crate::config::Config) -> Result<Self, OpenAIAdapterError> {
         let core_cfg = DsCoreConfig {
             api_base: config.ds_core.api_base.clone(),
@@ -101,19 +101,19 @@ impl OpenAIAdapter {
     /// POST /v1/chat/completions（统一入口）
     ///
     /// 内部校验参数、构建 ChatML prompt、按 stream 标记分流：
-    /// - stream=true  → returns SSE byte stream
-    /// - stream=false → aggregates SSE stream into single JSON object and returns
+    /// - stream=true  → 返回 SSE 字节流
+    /// - stream=false → 将 SSE 流聚合为单个 JSON 对象后返回
     pub async fn chat_completions(
         &self,
         mut req: ChatCompletionsRequest,
         request_id: &str,
     ) -> Result<ChatResult<ChatOutput>, OpenAIAdapterError> {
-        log::debug!(target: "adapter", "req={} adapter processing started: model={}, stream={}", request_id, req.model, req.stream);
+        log::debug!(target: "adapter", "req={} 适配器开始处理: model={}, stream={}", request_id, req.model, req.stream);
         use crate::openai_adapter::types::{
             FunctionCallOption, NamedFunction, NamedToolChoice, Tool, ToolChoice,
         };
 
-        // Legacy compat: functions / function_call → tools / tool_choice
+        // 兼容旧版 functions / function_call → tools / tool_choice
         if req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true)
             && let Some(functions) = req.functions.clone()
             && !functions.is_empty()
@@ -173,11 +173,11 @@ impl OpenAIAdapter {
 
         let chat_resp = self.try_chat(chat_req, request_id).await?;
         let (account_id, event_stream) = Self::take_meta(chat_resp.stream).await.map_err(|e| {
-            log::error!(target: "adapter", "req={} failed to get Meta event: {}", request_id, e);
-            OpenAIAdapterError::Internal("failed to get Meta event".into())
+            log::error!(target: "adapter", "req={} 取 Meta 事件失败: {}", request_id, e);
+            OpenAIAdapterError::Internal("取 Meta 事件失败".into())
         })?;
 
-        // Prepare tool definition info for repair model
+        // 为修复模型准备工具定义信息
         let tool_defs = req.tools.as_ref().map(|tools| {
             tools
                 .iter()
@@ -248,13 +248,13 @@ impl OpenAIAdapter {
             match self.ds_core.v0_chat(req.clone(), request_id).await {
                 Ok(resp) => {
                     if attempt > 0 {
-                        log::info!(target: "adapter", "req={} retry {} succeeded", request_id, attempt);
+                        log::info!(target: "adapter", "req={} 第 {} 次重试成功", request_id, attempt);
                     }
                     return Ok(resp);
                 }
                 Err(CoreError::Overloaded) if attempt + 1 < MAX_RETRIES => {
                     let delay = BASE_DELAY_MS * (1 << attempt);
-                    log::warn!(target: "adapter", "req={} Overloaded, retry {} waiting {}ms", request_id, attempt + 1, delay);
+                    log::warn!(target: "adapter", "req={} Overloaded, 第 {} 次重试等待 {}ms", request_id, attempt + 1, delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
                 Err(e) => return Err(e),
@@ -313,7 +313,7 @@ impl OpenAIAdapter {
         let chat_resp = self.try_chat(ds_req, request_id).await?;
         let (account_id, event_stream) = Self::take_meta(chat_resp.stream).await?;
 
-        // Serialize StreamEvent to JSON lines for debugging
+        // 将 StreamEvent 序列化为 JSON 行供调试
         use futures::StreamExt;
         let data: StreamResponse = Box::pin(event_stream.map(|r| {
             r.map(|evt| {
@@ -329,12 +329,12 @@ impl OpenAIAdapter {
         })
     }
 
-    /// Get ds_core account pool status
+    /// 获取 ds_core 账号池状态
     pub fn account_statuses(&self) -> Vec<ds_core::AccountStatus> {
         self.ds_core.account_statuses()
     }
 
-    /// Dynamically add account
+    /// 动态添加账号
     pub async fn add_account(
         &self,
         creds: &crate::config::Account,
@@ -348,7 +348,7 @@ impl OpenAIAdapter {
         self.ds_core.add_account(&ac).await
     }
 
-    /// Dynamically remove account
+    /// 动态移除账号
     pub async fn remove_account(
         &self,
         email_or_mobile: &str,
@@ -356,12 +356,12 @@ impl OpenAIAdapter {
         self.ds_core.remove_account(email_or_mobile).await
     }
 
-    /// Mark account as Error state
+    /// 标记账号为 Error 状态
     pub fn mark_error(&self, email_or_mobile: &str) {
         self.ds_core.mark_error(email_or_mobile);
     }
 
-    /// Manually re-login specified account
+    /// 手动重新登录指定账号
     pub async fn re_login_single(&self, email_or_mobile: &str) -> Result<(), String> {
         self.ds_core.re_login_single(email_or_mobile).await
     }
@@ -394,7 +394,7 @@ impl OpenAIAdapter {
                 match self.add_account(acct).await {
                     Ok(_) => _added += 1,
                     Err(e) => {
-                        log::warn!(target: "adapter", "sync add account {} failed: {}", id, e);
+                        log::warn!(target: "adapter", "同步添加账号 {} 失败: {}", id, e);
                         _failed += 1;
                     }
                 }
@@ -417,7 +417,7 @@ impl OpenAIAdapter {
                 match self.remove_account(old_id).await {
                     Ok(_) => _removed += 1,
                     Err(e) => {
-                        log::warn!(target: "adapter", "sync remove account {} failed: {}", old_id, e);
+                        log::warn!(target: "adapter", "同步移除账号 {} 失败: {}", old_id, e);
                     }
                 }
             }
@@ -451,11 +451,11 @@ impl OpenAIAdapter {
                 Ok((String::new(), Box::pin(rest)))
             }
             Some(Err(e)) => Err(e),
-            None => Err(CoreError::Stream("empty stream".into())),
+            None => Err(CoreError::Stream("空流".into())),
         }
     }
 
-    /// Graceful shutdown
+    /// 优雅关闭
     pub async fn shutdown(&self) {
         self.ds_core.shutdown().await;
     }
@@ -511,14 +511,14 @@ impl OpenAIAdapter {
                 let repair_req_id = format!("{}-repair-{}", req_id, n);
                 let mut prompt = String::new();
                 if !tools_info.is_empty() {
-                    prompt.push_str(&format!("Available tool definitions：\n{}\n\n", tools_info));
+                    prompt.push_str(&format!("可用的工具定义：\n{}\n\n", tools_info));
                 }
                 prompt.push_str(&format!(
-                    "Please extract the content from the following code block and convert it into a valid tool call JSON array.\
-                     \nEach element must contain \"name\"（字符串）和 \"arguments\"（对象）字段。\
-                     \n只Output JSON 数组本身，不要加 code fence，不要其他文字解释。\
+                    "请将以下代码块中的内容提取并转换为合法的工具调用 JSON 数组。\
+                     \n每个元素必须包含 \"name\"（字符串）和 \"arguments\"（对象）字段。\
+                     \n只输出 JSON 数组本身，不要加 code fence，不要其他文字解释。\
                      \n注意：字符串值中的引号和换行符必须用反斜杠转义（如 \\\" 和 \\n）。\
-                     \n\nContent to repair：\n~~~\n{tool_text}\n~~~"
+                     \n\n需要修复的内容：\n~~~\n{tool_text}\n~~~"
                 ));
                 let req = ChatRequest {
                     prompt,
@@ -529,7 +529,7 @@ impl OpenAIAdapter {
                 };
                 log::debug!(
                     target: "adapter",
-                    "{} initiating repair request: len={}", repair_req_id, tool_text.len()
+                    "{} 发起修复请求: len={}", repair_req_id, tool_text.len()
                 );
                 let resp = core
                     .v0_chat(req, &repair_req_id)
@@ -541,10 +541,10 @@ impl OpenAIAdapter {
     }
 }
 
-/// Adapter error type
+/// 适配器错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum OpenAIAdapterError {
-    /// Bad request format
+    /// 请求格式错误
     #[error("bad request: {0}")]
     BadRequest(String),
 
@@ -560,7 +560,7 @@ pub enum OpenAIAdapterError {
     #[error("internal error: {0}")]
     Internal(String),
 
-    /// tool_calls tag parsing failed，携带 `{TOOL_CALL_START}...{TOOL_CALL_END}`  raw text
+    /// tool_calls 标记解析失败，携带 `{TOOL_CALL_START}...{TOOL_CALL_END}` 内的原始文本
     #[error("tool_calls repair needed: {0}")]
     ToolCallRepairNeeded(String),
 }
@@ -585,7 +585,7 @@ impl From<serde_json::Error> for OpenAIAdapterError {
 }
 
 impl OpenAIAdapterError {
-    /// Returns corresponding HTTP status code
+    /// 返回对应 HTTP 状态码
     #[must_use]
     pub fn status_code(&self) -> u16 {
         match self {

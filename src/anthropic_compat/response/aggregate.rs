@@ -1,4 +1,4 @@
-//! Non-streaming response mapping — map ChatCompletionsResponse to MessagesResponse
+//! 非流式响应映射 —— 将 ChatCompletionsResponse 映射为 MessagesResponse
 
 use log::debug;
 
@@ -6,9 +6,9 @@ use super::{ContentBlock, finish_reason_map, map_id};
 use crate::anthropic_compat::types::{MessagesResponse, Usage};
 use crate::openai_adapter::types::{ChatCompletionsResponse, ToolCall};
 
-/// Directly map OpenAI ChatCompletionsResponse to MessagesResponse
+/// 将 OpenAI ChatCompletionsResponse 直接映射为 MessagesResponse
 pub fn from_chat_completions(resp: &ChatCompletionsResponse) -> MessagesResponse {
-    debug!(target: "anthropic_compat::response::aggregate", "mapping non-streaming response");
+    debug!(target: "anthropic_compat::response::aggregate", "开始映射非流式响应");
     let choice = resp.choices.first();
     let message = choice.map(|c| &c.message);
 
@@ -54,7 +54,7 @@ pub fn from_chat_completions(resp: &ChatCompletionsResponse) -> MessagesResponse
             output_tokens: 0,
         });
 
-    debug!(target: "anthropic_compat::response::aggregate", "mapping complete: content_blocks={}", content.len());
+    debug!(target: "anthropic_compat::response::aggregate", "映射完成: content_blocks={}", content.len());
     MessagesResponse {
         id: map_id(&resp.id),
         ty: "message",

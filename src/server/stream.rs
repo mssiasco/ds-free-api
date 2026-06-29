@@ -1,6 +1,6 @@
-//! SSE stream bridging — generic Stream to axum Body conversion
+//! SSE 流桥接 —— 泛型 Stream 转 axum Body
 //!
-//! Supports both OpenAI and Anthropic streaming responses.
+//! 支持 OpenAI 与 Anthropic 两种流式响应。
 
 use axum::{
     body::Body,
@@ -14,7 +14,7 @@ use futures::{Stream, StreamExt};
 // SseBody
 // ---------------------------------------------------------------------------
 
-/// SSE response body wrapper (generic)
+/// SSE 响应体包装器（泛型）
 pub struct SseBody<S> {
     inner: S,
     extra_headers: Vec<(String, String)>,
@@ -32,7 +32,7 @@ where
         }
     }
 
-    /// Add a custom response header
+    /// 添加自定义响应头
     pub fn with_header(mut self, name: &str, value: &str) -> Self {
         self.extra_headers
             .push((name.to_string(), value.to_string()));

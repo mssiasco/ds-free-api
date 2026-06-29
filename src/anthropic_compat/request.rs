@@ -1,4 +1,4 @@
-//! Anthropic request mapping — MessagesRequest → ChatCompletionsRequest struct conversion
+//! Anthropic 请求映射 —— MessagesRequest → ChatCompletionsRequest 结构体转换
 //!
 //! 纯函数：不接受 JSON 字节，直接做结构体到结构体的字段映射。
 
@@ -13,12 +13,12 @@ use crate::openai_adapter::types::{
 };
 
 // ============================================================================
-// Mapping functions
+// 映射函数
 // ============================================================================
 
-/// Directly map Anthropic MessagesRequest to ChatCompletionsRequest struct
+/// 将 Anthropic MessagesRequest 直接映射为 ChatCompletionsRequest 结构体
 pub(crate) fn into_chat_completions(req: MessagesRequest) -> ChatCompletionsRequest {
-    // messages: system prepend + messages conversion
+    // messages: system 前置 + messages 转换
     let mut messages = Vec::new();
     if let Some(ref system) = req.system {
         messages.push(system_to_message(system));
@@ -67,7 +67,7 @@ pub(crate) fn into_chat_completions(req: MessagesRequest) -> ChatCompletionsRequ
         reasoning_effort,
         response_format,
         web_search_options,
-        // Remaining fields keep defaults
+        // 其余字段保持默认
         audio: None,
         frequency_penalty: None,
         function_call: None,
@@ -98,7 +98,7 @@ pub(crate) fn into_chat_completions(req: MessagesRequest) -> ChatCompletionsRequ
 }
 
 // ============================================================================
-// Helper functions
+// 辅助函数
 // ============================================================================
 
 fn empty_message(role: String, content: OaiMessageContent) -> Message {
@@ -150,7 +150,7 @@ fn message_param_to_messages(msg: &MessageParam) -> Vec<Message> {
     }
 }
 
-/// Map assistant's content blocks to OpenAI messages
+/// 将 assistant 的 content blocks 映射为 OpenAI 消息
 fn assistant_blocks_to_messages(blocks: &[ContentBlock]) -> Vec<Message> {
     let mut texts = Vec::new();
     let mut tool_calls = Vec::new();
@@ -221,7 +221,7 @@ fn infer_doc_filename(mime: &str) -> String {
     format!("document.{}", ext)
 }
 
-/// Map user's content blocks to OpenAI messages
+/// 将 user 的 content blocks 映射为 OpenAI 消息
 fn user_blocks_to_messages(blocks: &[ContentBlock]) -> Vec<Message> {
     let mut text_parts = Vec::new();
     let mut image_parts = Vec::new();
@@ -248,12 +248,12 @@ fn user_blocks_to_messages(blocks: &[ContentBlock]) -> Vec<Message> {
                         .as_deref()
                         .filter(|t| !t.is_empty())
                         .unwrap_or(&filename);
-                    text_parts.push(format!("[File: {}]", desc));
+                    text_parts.push(format!("[文件: {}]", desc));
                     file_parts.push(FilePart { data_url, filename });
                 }
                 ImageSource::Url { url } => {
-                    // Use image_url part + HTTP URL to trigger search mode
-                    // format_part will output [Please visit this link: {url}]
+                    // 利用 image_url part + HTTP URL 触发搜索模式
+                    // format_part 会输出 [请访问这个链接: {url}]
                     image_parts.push(url.clone());
                 }
             },
@@ -286,7 +286,7 @@ fn user_blocks_to_messages(blocks: &[ContentBlock]) -> Vec<Message> {
 
     let mut result = Vec::new();
 
-    // Text + image + file merged into one user message
+    // 文本 + 图片 + 文件合并为一个 user message
     if !text_parts.is_empty() || !image_parts.is_empty() || !file_parts.is_empty() {
         if image_parts.is_empty() && file_parts.is_empty() {
             result.push(empty_message(
@@ -346,7 +346,7 @@ fn user_blocks_to_messages(blocks: &[ContentBlock]) -> Vec<Message> {
         }
     }
 
-    // tool_result as independent tool role messages
+    // tool_result 作为独立的 tool role messages
     result.extend(tool_results);
 
     result
@@ -753,7 +753,7 @@ mod tests {
 
     #[test]
     fn image_source_mapped() {
-        // Both base64 and url image sources map to image_url content part
+        // base64 和 url 两种 image source 都映射为 image_url content part
         let cases = [
             (
                 r#"{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc123"}}"#,

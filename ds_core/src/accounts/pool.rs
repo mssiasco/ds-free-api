@@ -1,6 +1,6 @@
-//! Account pool management — multi-account load balancing
+//! 账号池管理 —— 多账号负载均衡
 //!
-//! 1 account = 1 session = 1 concurrency. Scaling concurrency requires more accounts.
+//! 1 account = 1 session = 1 concurrency。多并发需横向扩展账号数。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
@@ -15,7 +15,7 @@ use super::client::{ClientError, CompletionPayload, DsClient, LoginPayload};
 use super::pow::{PowError, PowSolver};
 use crate::config::AccountConfig;
 
-/// Account state enum
+/// 账号状态枚举
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccountState {
@@ -45,15 +45,15 @@ impl AccountState {
     }
 }
 
-/// Account status information
+/// 账号状态信息
 #[derive(serde::Serialize)]
 pub struct AccountStatus {
     pub email: String,
     pub mobile: String,
     pub state: String,
-    /// Last release timestamp (ms), 0 means never used
+    /// 最后释放时间戳（ms），0 表示从未使用
     pub last_released_ms: i64,
-    /// Consecutive login failure count
+    /// 连续登录失败次数
     pub error_count: u8,
 }
 
@@ -62,15 +62,15 @@ pub struct Account {
     email: String,
     mobile: String,
     state: AtomicU8,
-    /// Last release timestamp of the account (ms), used for cooldown check
+    /// 账号最近一次释放的时间戳（ms），用于冷却判断
     last_released: AtomicI64,
-    /// Consecutive login failure count
+    /// 连续登录失败次数
     error_count: AtomicU8,
-    /// Original credentials (used for re-login)
+    /// 原始凭据（用于重新登录）
     creds: AccountConfig,
 }
 
-/// Maximum consecutive login failures before marking as Invalid
+/// 连续登录失败上限，达到后标记为 Invalid
 const MAX_ERROR_COUNT: u8 = 3;
 
 impl Account {
@@ -98,7 +98,7 @@ impl Account {
         self.state() == AccountState::Idle
     }
 
-    /// Create an account in Invalid state (used when initialization fails; still added to pool for frontend display)
+    /// 创建一个 Invalid 状态的账号（初始化失败时使用，仍加入池以便前台展示）
     fn new_invalid(creds: AccountConfig) -> Self {
         Self {
             token: std::sync::RwLock::new(String::new().into()),
@@ -112,7 +112,7 @@ impl Account {
     }
 }
 
-/// Account is marked as busy during holding; automatically released on Drop
+/// 持有期间账号标记为 busy，Drop 时自动释放
 pub struct AccountGuard {
     account: Arc<Account>,
 }
@@ -125,7 +125,7 @@ impl AccountGuard {
 
 impl Drop for AccountGuard {
     fn drop(&mut self) {
-        // Only release back to Idle from Busy state (avoid overwriting Error/Invalid)
+        // 只有 Busy 状态才释放回 Idle（避免覆盖 Error/Invalid）
         self.account
             .state
             .compare_exchange(
@@ -152,32 +152,32 @@ pub struct AccountPool {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PoolError {
-    /// All accounts failed to initialize (no available accounts)
-    #[error("All accounts failed to initialize")]
+    /// 所有账号初始化失败（没有可用账号）
+    #[error("所有账号初始化失败")]
     AllAccountsFailed,
 
-    /// Downstream client error (network, API error, etc.)
-    #[error("Client error: {0}")]
+    /// 下游客户端错误（网络、API 错误等）
+    #[error("客户端错误: {0}")]
     Client(#[from] ClientError),
 
-    /// PoW computation failed (WASM execution error)
-    #[error("PoW computation failed: {0}")]
+    /// PoW 计算失败（WASM 执行错误）
+    #[error("PoW 计算失败: {0}")]
     Pow(#[from] PowError),
 
-    /// Account configuration validation failed
-    #[error("Account config error: {0}")]
+    /// 账号配置验证失败
+    #[error("账号配置错误: {0}")]
     Validation(String),
 
-    /// Account already exists
-    #[error("Account already exists: {0}")]
+    /// 账号已存在
+    #[error("账号已存在: {0}")]
     AlreadyExists(String),
 
-    /// Account not found
-    #[error("Account not found: {0}")]
+    /// 账号不存在
+    #[error("账号不存在: {0}")]
     NotFound(String),
 
-    /// Account is in use, cannot be removed
-    #[error("Account is in use: {0}")]
+    /// 账号正在使用中，无法删除
+    #[error("账号正在使用中: {0}")]
     AccountBusy(String),
 }
 
@@ -204,7 +204,7 @@ impl AccountPool {
         use std::sync::Arc;
         use tokio::sync::Semaphore;
 
-        // Limit concurrent initialization count to avoid putting pressure on DeepSeek's endpoints and local connection pool
+        // 限制并发初始化数，避免对 DeepSeek 端和本地连接池造成压力
         let semaphore = Arc::new(Semaphore::new(13));
         let futures: Vec<_> = creds
             .into_iter()
@@ -213,7 +213,7 @@ impl AccountPool {
                 let solver = solver.clone();
                 let sem = semaphore.clone();
                 async move {
-                    let _permit = sem.acquire().await.expect("Semaphore closed unexpectedly");
+                    let _permit = sem.acquire().await.expect("信号量未关闭");
                     let display_id = if creds.email.is_empty() {
                         creds.mobile.clone()
                     } else {
@@ -226,7 +226,7 @@ impl AccountPool {
                         }
                         Err(e) => {
                             warn!(target: "ds_core::accounts", "Account {} initialization failed: {}", display_id, e);
-                            // Even if initialization fails, add to pool marked as Invalid for frontend display
+                            // 即使初始化失败也加入池，标记为 Invalid 以便前台展示
                             Account::new_invalid(creds.clone())
                         }
                     };
@@ -254,7 +254,7 @@ impl AccountPool {
         Ok(())
     }
 
-    /// Dynamically add an account (runtime initialization)
+    /// 动态添加账号（运行时初始化）
     pub async fn add_account(
         &self,
         creds: &AccountConfig,
@@ -267,7 +267,7 @@ impl AccountPool {
             creds.email.clone()
         };
 
-        // Check if already exists (DashMap O(1) lookup)
+        // 检查是否已存在（DashMap O(1) 查找）
         if self.accounts.contains_key(&display_id) {
             return Err(PoolError::AlreadyExists(display_id));
         }
@@ -279,7 +279,7 @@ impl AccountPool {
         Ok(display_id)
     }
 
-    /// Dynamically remove an account (only idle accounts can be removed)
+    /// 动态移除账号（仅空闲账号可移除）
     pub async fn remove_account(&self, email_or_mobile: &str) -> Result<String, PoolError> {
         let account = self
             .accounts
@@ -290,7 +290,7 @@ impl AccountPool {
             return Err(PoolError::AccountBusy(email_or_mobile.to_string()));
         }
 
-        // Also allow removing Error/Invalid state accounts
+        // 也允许移除 Error/Invalid 状态的账号
         drop(account);
         let (_, removed) = self
             .accounts
@@ -301,7 +301,7 @@ impl AccountPool {
         Ok(id)
     }
 
-    /// Get the longest-idle available account with waiting: waits up to `timeout_ms` milliseconds if no account is available
+    /// 获取空闲最久的可用账号，带等待：无可用账号时最多等待 `timeout_ms` 毫秒
     pub async fn get_account_with_wait(&self, timeout_ms: u64) -> Option<AccountGuard> {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
         loop {
@@ -315,11 +315,10 @@ impl AccountPool {
         }
     }
 
-    /// Get the longest-idle available account (no waiting, return immediately)
+    /// 获取空闲最久的可用账号（不等待，立即返回）
     ///
-    /// Iterates all accounts, selects the one with cooldown expired and longest idle time,
-    /// maximizing the interval between each use.
-    /// DashMap lock-free reads, does not block concurrent requests.
+    /// 遍历所有账号，选冷却已过且空闲时间最长的那个，最大化每次使用间隔。
+    /// DashMap 无锁读，不阻塞并发请求。
     pub fn get_account(&self) -> Option<AccountGuard> {
         if self.accounts.is_empty() {
             return None;
@@ -358,7 +357,7 @@ impl AccountPool {
         Some(AccountGuard { account })
     }
 
-    /// Get detailed status of all accounts
+    /// 获取所有账号的详细状态
     pub fn account_statuses(&self) -> Vec<AccountStatus> {
         self.accounts
             .iter()
@@ -375,20 +374,20 @@ impl AccountPool {
             .collect()
     }
 
-    /// Graceful shutdown (new flow has no persistent sessions, no cleanup needed)
+    /// 优雅关闭（新流程无持久 session，无需清理）
     pub async fn shutdown(&self, _client: &DsClient) {}
 
-    /// Store client and solver for use by the recovery task
+    /// 存储 client 和 solver 供恢复任务使用
     pub async fn set_client_solver(&self, client: DsClient, solver: PowSolver) {
         *self.client.write().await = Some(client);
         *self.solver.write().await = Some(solver);
     }
 
-    /// Mark account as Error state (called on request failure)
+    /// 标记账号为 Error 状态（请求失败时调用）
     pub fn mark_error(&self, email_or_mobile: &str) {
         if let Some(entry) = self.accounts.get(email_or_mobile) {
             let account = entry.value();
-            // Only transition from Busy to Error (avoid overwriting Invalid)
+            // 只从 Busy 转到 Error（避免覆盖 Invalid）
             account
                 .state
                 .compare_exchange(
@@ -402,48 +401,48 @@ impl AccountPool {
         }
     }
 
-    /// Manually re-login a specific account (admin-triggered)
-    /// Success → Idle, failure → error_count++, ≥3 → Invalid
+    /// 手动重新登录指定账号（管理员触发）
+    /// 成功 → Idle，失败 → error_count++，≥3 则 Invalid
     pub async fn re_login_single(&self, email_or_mobile: &str) -> Result<(), String> {
         let client_opt = self.client.read().await.clone();
         let solver_opt = self.solver.read().await.clone();
         let (Some(client), Some(solver)) = (client_opt, solver_opt) else {
-            return Err("client/solver not initialized".to_string());
+            return Err("client/solver 未初始化".to_string());
         };
 
         let account = self
             .accounts
             .get(email_or_mobile)
-            .ok_or_else(|| format!("Account {} does not exist", email_or_mobile))?;
+            .ok_or_else(|| format!("账号 {} 不存在", email_or_mobile))?;
         let account = account.value();
 
-        // Only allow re-login for Error/Invalid state accounts
+        // 只允许 Error/Invalid 状态的账号重登
         let state = account.state();
         if state != AccountState::Error && state != AccountState::Invalid {
             return Err(format!(
-                "Account state is {}, only Error/Invalid can re-login",
+                "账号状态为 {}，仅 Error/Invalid 可重登",
                 state.as_str()
             ));
         }
 
         Self::re_login_account(account, &client, &solver).await;
 
-        // Check state after re-login
+        // 检查重登后状态
         let new_state = account.state();
         if new_state == AccountState::Idle {
             Ok(())
         } else {
-            Err(format!("Re-login failed, current state: {}", new_state.as_str()))
+            Err(format!("重登失败，当前状态: {}", new_state.as_str()))
         }
     }
 
-    /// Attempt to re-login accounts in Error state
-    /// Success → Idle, failure → error_count++, ≥3 → Invalid
+    /// 尝试重新登录 Error 状态的账号
+    /// 成功 → Idle，失败 → error_count++，≥3 则 Invalid
     async fn re_login_account(account: &Account, client: &DsClient, solver: &PowSolver) {
         let display_id = account.display_id().to_string();
         match try_init_account(&account.creds, client, solver).await {
             Ok(new_account) => {
-                // Update token
+                // 更新 token
                 *account.token.write().unwrap() = new_account.token.read().unwrap().clone();
                 account
                     .state
@@ -465,7 +464,7 @@ impl AccountPool {
         }
     }
 
-    /// Start background recovery task: scan Error accounts every 60 seconds and attempt re-login
+    /// 启动后台恢复任务：每 60 秒扫描 Error 账号并尝试重新登录
     pub fn start_recovery_task(self: &Arc<Self>) {
         let pool = Arc::clone(self);
         tokio::spawn(async move {
@@ -502,10 +501,10 @@ async fn try_init_account(
     client: &DsClient,
     solver: &PowSolver,
 ) -> Result<Account, PoolError> {
-    // Validation: at least one of email or mobile must be non-empty
+    // 验证：email 和 mobile 至少一个非空
     if creds.email.is_empty() && creds.mobile.is_empty() {
         return Err(PoolError::Validation(
-            "email and mobile cannot both be empty".to_string(),
+            "email 和 mobile 不能同时为空".to_string(),
         ));
     }
 
@@ -533,7 +532,7 @@ async fn try_init_account(
     let login_data = client.login(&login_payload).await?;
     debug!(
         target: "ds_core::client",
-        "Login response: code={}, msg={}, user_id={}, email={:?}, mobile={:?}",
+        "登录响应: code={}, msg={}, user_id={}, email={:?}, mobile={:?}",
         login_data.code,
         login_data.msg,
         login_data.user.id,
@@ -548,10 +547,10 @@ async fn try_init_account(
         &creds.email
     };
 
-    // Health check: create temporary session → send test completion → delete session
+    // 健康检查：创建临时 session → 发送 test completion → 删除 session
     let session_id = client.create_session(&token).await?;
     if let Err(e) = health_check(&token, &session_id, client, solver, "default", display_id).await {
-        // Clean up session even if health check fails
+        // 即使健康检查失败也要清理 session
         let _ = client.delete_session(&token, &session_id).await;
         return Err(e);
     }
@@ -588,7 +587,7 @@ async fn health_check(
         chat_session_id: session_id.to_string(),
         parent_message_id: None,
         model_type: model_type.to_string(),
-        prompt: "Only reply with `Hello, world!`".to_string(),
+        prompt: "只回复`Hello, world!`".to_string(),
         ref_file_ids: vec![],
         thinking_enabled: false,
         search_enabled: false,
@@ -596,7 +595,7 @@ async fn health_check(
     };
 
     let mut stream = client.completion(token, &pow_header, &payload).await?;
-    // Consume stream and check if normal SSE was received (healthy accounts should have ready/response events)
+    // 消费流并检查是否收到正常 SSE（健康账号应有 ready/response 事件）
     let mut data = Vec::new();
     while let Some(chunk) = stream.try_next().await? {
         data.extend_from_slice(&chunk);
@@ -604,25 +603,25 @@ async fn health_check(
 
     let text = String::from_utf8_lossy(&data);
 
-    // Detect if account is abnormal (muted / rate-limited, etc.)
+    // 检测账号是否异常（muted / 限流等）
     if text.contains(r#""biz_code":"#) {
         error!(
             target: "ds_core::accounts",
-            "health_check detected business error: account={}, response={}",
+            "health_check 检测到业务错误: account={}, response={}",
             display_id,
             text.lines().find(|l| l.contains("biz_code")).unwrap_or(&text)
         );
-        return Err(PoolError::Validation("Account abnormal (muted/limited)".into()));
+        return Err(PoolError::Validation("账号异常(muted/limited)".into()));
     }
 
-    // Check if SSE stream ended normally
+    // 检查 SSE 流是否正常结束
     if !text.contains(r#""FINISHED""#) && !text.contains(r#""INCOMPLETE""#) {
-        return Err(PoolError::Validation("SSE stream did not end normally".into()));
+        return Err(PoolError::Validation("SSE 流未正常结束".into()));
     }
 
     debug!(
         target: "ds_core::accounts",
-        "health_check completed model_type={} account={} elapsed={:?}",
+        "health_check 完成 model_type={} account={} elapsed={:?}",
         model_type, display_id, start.elapsed()
     );
     Ok(())

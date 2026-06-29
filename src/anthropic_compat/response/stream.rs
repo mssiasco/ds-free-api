@@ -1,4 +1,4 @@
-//! Streaming response mapping — map ChatCompletionsResponseChunk stream to MessagesResponseChunk stream
+//! 流式响应映射 —— 将 ChatCompletionsResponseChunk 流映射为 MessagesResponseChunk 流
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -17,7 +17,7 @@ use crate::openai_adapter::types::ChatCompletionsResponseChunk;
 use super::{finish_reason_map, map_id};
 
 // ============================================================================
-// State machine
+// 状态机
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -236,7 +236,7 @@ impl StreamState {
 }
 
 // ============================================================================
-// AnthropicStream converter
+// AnthropicStream 转换器
 // ============================================================================
 
 pin_project! {
@@ -267,7 +267,7 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        // Output pending events first
+        // 优先输出待处理事件
         if !this.pending_events.is_empty() {
             let event = this.pending_events.remove(0);
             return Poll::Ready(Some(Ok(event)));
@@ -292,7 +292,7 @@ where
                     if !this.state.finished {
                         debug!(
                             target: "anthropic_compat::response::stream",
-                            "Complete Anthropic tail events after upstream stream error: {}",
+                            "上游流错误后补齐 Anthropic 收尾事件: {}",
                             e
                         );
                         this.state.finished = true;
@@ -313,8 +313,8 @@ where
                     return Poll::Ready(None);
                 }
                 Poll::Ready(None) => {
-                    debug!(target: "anthropic_compat::response::stream", "stream end, started={}, finished={}", this.state.started, this.state.finished);
-                    // 流结束但未收到 finish_reason：Graceful shutdown
+                    debug!(target: "anthropic_compat::response::stream", "流结束, started={}, finished={}", this.state.started, this.state.finished);
+                    // 流结束但未收到 finish_reason：优雅关闭
                     if !this.state.finished && this.state.started {
                         this.state.finished = true;
                         let mut events: Vec<MessagesResponseChunk> =
@@ -343,14 +343,14 @@ where
 // 公共入口
 // ============================================================================
 
-/// Map ChatCompletionsResponseChunk stream to MessagesResponseChunk stream
+/// 将 ChatCompletionsResponseChunk 流映射为 MessagesResponseChunk 流
 pub fn from_chat_completion_stream<S>(
     openai_stream: S,
 ) -> Pin<Box<dyn Stream<Item = Result<MessagesResponseChunk, AnthropicCompatError>> + Send>>
 where
     S: Stream<Item = Result<ChatCompletionsResponseChunk, OpenAIAdapterError>> + Send + 'static,
 {
-    debug!(target: "anthropic_compat::response::stream", "starting streaming response mapping");
+    debug!(target: "anthropic_compat::response::stream", "启动流式响应映射");
     Box::pin(AnthropicStream::new(openai_stream))
 }
 

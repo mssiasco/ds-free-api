@@ -1,4 +1,4 @@
-//! Request statistics — lightweight atomic counters + periodic persistence + per-model breakdown
+//! 请求统计 —— 轻量级原子计数器 + 定期持久化 + 按模型拆分
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -11,12 +11,12 @@ use serde::Serialize;
 
 use super::store::StoreManager;
 
-/// Persistence interval: write to disk every 30 requests
+/// 持久化间隔：每 30 次请求写盘一次
 const PERSIST_INTERVAL: u64 = 30;
-/// Maximum number of request log entries
+/// 请求日志最大条数
 const LOG_CAPACITY: usize = 200;
 
-/// Statistics counter for a single model
+/// 单个模型的统计计数器
 pub struct ModelStats {
     pub prompt_tokens: AtomicU64,
     pub completion_tokens: AtomicU64,
@@ -33,7 +33,7 @@ impl ModelStats {
     }
 }
 
-/// Statistics counter for a single API Key
+/// 单个 API Key 的统计计数器
 pub struct KeyUsage {
     pub prompt_tokens: AtomicU64,
     pub completion_tokens: AtomicU64,
@@ -50,7 +50,7 @@ impl KeyUsage {
     }
 }
 
-/// Single request log entry
+/// 单条请求日志
 #[derive(Serialize, Clone)]
 pub struct RequestLog {
     pub timestamp: u64,
@@ -63,7 +63,7 @@ pub struct RequestLog {
     pub success: bool,
 }
 
-/// Request statistics counter
+/// 请求统计计数器
 pub struct Stats {
     pub total_requests: AtomicU64,
     pub success_requests: AtomicU64,
@@ -72,20 +72,20 @@ pub struct Stats {
     pub total_prompt_tokens: AtomicU64,
     pub total_completion_tokens: AtomicU64,
     pub start_time: Instant,
-    /// total_requests value at the time of last persistence
+    /// 上次持久化时的 total_requests 值
     last_persisted: AtomicU64,
-    /// Persistent storage
+    /// 持久化存储
     store: Option<Arc<StoreManager>>,
-    /// Per-model statistics
+    /// 按模型拆分的统计
     pub model_stats: DashMap<String, ModelStats>,
-    /// Per-API-Key statistics
+    /// 按 API Key 拆分的统计
     pub key_stats: DashMap<String, KeyUsage>,
-    /// Request log ring buffer
+    /// 请求日志环形缓冲区
     pub request_logs: Mutex<VecDeque<RequestLog>>,
 }
 
 impl Stats {
-    /// Create Stats, optionally recovering from persisted data (including model/key dimension stats + request logs)
+    /// 创建 Stats，可选从持久化数据恢复（含模型/Key 维度统计 + 请求日志）
     pub fn new_with_store(store: Option<Arc<StoreManager>>) -> Self {
         let (
             total_requests,
@@ -113,7 +113,7 @@ impl Stats {
             },
         );
 
-        // Restore model statistics
+        // 恢复模型统计
         let model_stats: DashMap<String, ModelStats> = DashMap::new();
         for (model, data) in &model_stats_data {
             model_stats.insert(
@@ -126,7 +126,7 @@ impl Stats {
             );
         }
 
-        // Restore key statistics
+        // 恢复 Key 统计
         let key_stats: DashMap<String, KeyUsage> = DashMap::new();
         for (key, data) in &key_stats_data {
             key_stats.insert(
@@ -139,7 +139,7 @@ impl Stats {
             );
         }
 
-        // Restore request logs (up to LOG_CAPACITY entries)
+        // 恢复请求日志（最多 LOG_CAPACITY 条）
         let mut logs = VecDeque::with_capacity(LOG_CAPACITY);
         for entry in logs_data.iter().rev().take(LOG_CAPACITY).rev() {
             logs.push_back(super::stats::RequestLog {
@@ -158,7 +158,7 @@ impl Stats {
             total_requests: AtomicU64::new(total_requests),
             success_requests: AtomicU64::new(success_requests),
             failed_requests: AtomicU64::new(failed_requests),
-            total_latency_ms: AtomicU64::new(0), // latency is not persisted
+            total_latency_ms: AtomicU64::new(0), // latency 不持久化
             total_prompt_tokens: AtomicU64::new(prompt_tokens),
             total_completion_tokens: AtomicU64::new(completion_tokens),
             start_time: Instant::now(),
@@ -170,7 +170,7 @@ impl Stats {
         }
     }
 
-    /// Append a request log entry
+    /// 追加请求日志
     pub fn append_log(&self, log: RequestLog) {
         let mut logs = self.request_logs.lock().unwrap();
         if logs.len() >= LOG_CAPACITY {
@@ -179,13 +179,13 @@ impl Stats {
         logs.push_back(log);
     }
 
-    /// Get recent request logs
+    /// 获取最近的请求日志
     pub fn recent_logs(&self, limit: usize) -> Vec<RequestLog> {
         let logs = self.request_logs.lock().unwrap();
         logs.iter().rev().take(limit).cloned().collect()
     }
 
-    /// Record token usage (including model + API Key dimensions)
+    /// 记录 token 用量（含模型 + API Key 维度）
     pub fn record_tokens_for_model_and_key(
         &self,
         model: &str,
@@ -197,7 +197,7 @@ impl Stats {
             .fetch_add(prompt_tokens, Ordering::Relaxed);
         self.total_completion_tokens
             .fetch_add(completion_tokens, Ordering::Relaxed);
-        // Record per model
+        // 按模型记录
         let ms = self
             .model_stats
             .entry(model.to_string())
@@ -206,7 +206,7 @@ impl Stats {
         ms.completion_tokens
             .fetch_add(completion_tokens, Ordering::Relaxed);
         ms.requests.fetch_add(1, Ordering::Relaxed);
-        // Record per API Key
+        // 按 API Key 记录
         if let Some(key) = api_key {
             let ku = self
                 .key_stats
@@ -219,7 +219,7 @@ impl Stats {
         }
     }
 
-    /// Record a completed request
+    /// 记录一次请求完成
     pub fn record_request(&self, success: bool, latency_ms: u64) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         if success {
@@ -232,7 +232,7 @@ impl Stats {
         self.maybe_persist();
     }
 
-    /// Check if persistence is needed
+    /// 检查是否需要持久化
     fn maybe_persist(&self) {
         let total = self.total_requests.load(Ordering::Relaxed);
         let last = self.last_persisted.load(Ordering::Relaxed);
@@ -246,7 +246,7 @@ impl Stats {
         }
     }
 
-    /// Immediately persist current statistics (including model/key dimensions + request logs)
+    /// 立即持久化当前统计（含模型/Key 维度 + 请求日志）
     pub fn persist_now(&self) {
         if let Some(ref store) = self.store {
             let model_stats: HashMap<String, super::store::ModelStatsData> = self
@@ -311,13 +311,13 @@ impl Stats {
             let store = store.clone();
             tokio::spawn(async move {
                 if let Err(e) = store.save_stats(&st).await {
-                    log::warn!(target: "stats", "Persistence failed: {}", e);
+                    log::warn!(target: "stats", "持久化失败: {}", e);
                 }
             });
         }
     }
 
-    /// Generate a statistics snapshot
+    /// 生成统计快照
     pub fn snapshot(&self) -> StatsSnapshot {
         let total = self.total_requests.load(Ordering::Relaxed);
         let success = self.success_requests.load(Ordering::Relaxed);
@@ -354,12 +354,12 @@ impl Stats {
         }
     }
 
-    /// Generate API Key dimension statistics snapshot
+    /// 生成 API Key 维度统计快照
     pub fn key_stats_snapshot(&self) -> HashMap<String, KeyUsageSnapshot> {
         self.key_stats
             .iter()
             .map(|r| {
-                // Mask: only show first 8 characters
+                // 脱敏：只显示前 8 位
                 let masked = if r.key().len() > 8 {
                     format!("{}***", &r.key()[..8])
                 } else {
@@ -405,8 +405,8 @@ pub struct KeyUsageSnapshot {
     pub requests: u64,
 }
 
-/// Request timing guard; automatically records statistics on Drop
-/// If mark_success/mark_failure is not called, Drop defaults to recording as a failure
+/// 请求计时守卫，Drop 时自动记录统计
+/// 如果未调用 mark_success/mark_failure，Drop 默认记录为失败
 pub struct RequestTimer {
     stats: Arc<Stats>,
     start: Instant,
@@ -434,7 +434,7 @@ impl Drop for RequestTimer {
 }
 
 impl RequestTimer {
-    /// Mark request as successful and record statistics
+    /// 标记请求成功并记录统计
     pub fn mark_success(mut self) {
         let elapsed = self.start.elapsed();
         let latency = elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis());
@@ -442,7 +442,7 @@ impl RequestTimer {
         self.marked = true;
     }
 
-    /// Mark request as failed and record statistics
+    /// 标记请求失败并记录统计
     pub fn mark_failure(mut self) {
         let elapsed = self.start.elapsed();
         let latency = elapsed.as_secs() * 1000 + u64::from(elapsed.subsec_millis());

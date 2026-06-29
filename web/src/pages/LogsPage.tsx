@@ -59,7 +59,7 @@ const levelColor = (level: string) => {
   }
 };
 
-// ── Request logs tab ──────────────────────────────────────────────────────────
+// ── 请求日志 Tab ──────────────────────────────────────────────────────────
 
 function RequestLogsTab() {
   const { t, i18n } = useTranslation();
@@ -134,7 +134,7 @@ function RequestLogsTab() {
   );
 }
 
-// ── Runtime logs tab ──────────────────────────────────────────────────────────
+// ── 运行日志 Tab ──────────────────────────────────────────────────────────
 
 function RuntimeLogsTab() {
   const { t } = useTranslation();
@@ -235,7 +235,7 @@ function RuntimeLogsTab() {
   );
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
+// ── 主页面 ────────────────────────────────────────────────────────────────
 
 export function LogsPage() {
   const { t } = useTranslation();

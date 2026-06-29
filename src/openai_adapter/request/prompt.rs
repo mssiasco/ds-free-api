@@ -1,8 +1,8 @@
-//! Prompt building — convert OpenAI messages to DeepSeek native tag format
+//! Prompt 构建 —— 将 OpenAI messages 转换为 DeepSeek 原生标签格式
 //!
 //! 使用 `<｜System｜>`、`<｜User｜>`、`<｜Assistant｜>`、`<｜tool▁outputs▁begin｜>` 作为角色标记。
-//! 若请求包含Tool definition或行为指令，会嵌入到最后一个 `<｜Assistant｜>` 后的
-//! 不闭合 `<think>`  block，确保工具上下文始终紧邻模型生成位置。
+//! 若请求包含工具定义或行为指令，会嵌入到最后一个 `<｜Assistant｜>` 后的
+//! 不闭合 `<think>` 块中，确保工具上下文始终紧邻模型生成位置。
 
 use super::tools::ToolContext;
 use crate::openai_adapter::response::{TOOL_CALL_END, TOOL_CALL_START};
@@ -15,9 +15,9 @@ fn merge_messages(messages: &[Message]) -> Vec<Message> {
         if let Some(last) = merged.last_mut()
             && last.role == msg.role
             && msg.role != "tool"
-        // tools are grouped and merged by build()
+        // tool 由 build() 分组合并
         {
-            // merge content
+            // 合并 content
             if let Some(ref content) = msg.content {
                 match &mut last.content {
                     Some(last_content) => match (last_content, content) {
@@ -28,7 +28,7 @@ fn merge_messages(messages: &[Message]) -> Vec<Message> {
                         (MessageContent::Parts(a), MessageContent::Parts(b)) => {
                             a.extend(b.clone());
                         }
-                        // different types → all converted to text and concatenated
+                        // 不同类型 → 都转 text 拼接
                         (last_c, new_c) => {
                             let new_text = format_content(new_c);
                             let last_text = format_content(last_c);
@@ -40,7 +40,7 @@ fn merge_messages(messages: &[Message]) -> Vec<Message> {
                     }
                 }
             }
-            // merge tool_calls
+            // 合并 tool_calls
             if let Some(ref calls) = msg.tool_calls {
                 match &mut last.tool_calls {
                     Some(last_calls) => last_calls.extend(calls.clone()),
@@ -70,11 +70,11 @@ fn merge_messages(messages: &[Message]) -> Vec<Message> {
     merged
 }
 
-/// Generate prompt text for response_format
+/// 生成 response_format 对应的提示文本
 fn format_response_text(rf: &crate::openai_adapter::types::ResponseFormat) -> String {
     match rf.ty.as_str() {
         "json_object" => {
-            "Please output a valid JSON object directly， Do not include any markdown code block markers or other explanatory text.".into()
+            "请直接输出合法的 JSON 对象，不要包含任何 markdown 代码块标记或其他解释性文字。".into()
         }
         "json_schema" => {
             let schema_text = rf
@@ -83,20 +83,20 @@ fn format_response_text(rf: &crate::openai_adapter::types::ResponseFormat) -> St
                 .map(|s| serde_json::to_string(s).unwrap_or_default())
                 .unwrap_or_default();
             if schema_text.is_empty() {
-                "Output in JSON format.".into()
+                "以 JSON 的形式输出。".into()
             } else {
                 format!(
-                    "Output in JSON format，输出的 JSON 需Follow the format below：\n\n~~~json\n{}\n~~~",
+                    "以 JSON 的形式输出，输出的 JSON 需遵守以下的格式：\n\n~~~json\n{}\n~~~",
                     schema_text
                 )
             }
         }
         "text" => String::new(),
-        _ => format!("Please output in {} format.", rf.ty),
+        _ => format!("请以 {} 格式输出。", rf.ty),
     }
 }
 
-/// Build prompt string in DeepSeek native tag format
+/// 构建 DeepSeek 原生标签格式的 prompt 字符串
 /// 顺序: [system(含 reminder)] [历史 user/tool/assistant 轮次...] <｜Assistant｜><think>[reminder]
 pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> String {
     let messages = merge_messages(&req.messages);
@@ -128,35 +128,35 @@ pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> Str
     let mut tool_sections: Vec<String> = Vec::new();
 
     if let Some(text) = tool_ctx.format_block.as_deref() {
-        tool_sections.push(format!("### Format specification\n{}", text));
+        tool_sections.push(format!("### 格式规范\n{}", text));
     }
     if let Some(text) = tool_ctx.defs_text.as_deref() {
-        tool_sections.push(format!("### Tool definitions\n{}", text));
+        tool_sections.push(format!("### 工具定义\n{}", text));
     }
     if let Some(text) = tool_ctx.instruction_text.as_deref() {
-        tool_sections.push(format!("### Call instructions\n{}", text));
+        tool_sections.push(format!("### 调用指令\n{}", text));
     }
 
     let mut reminder_parts: Vec<String> = Vec::new();
 
     if !tool_sections.is_empty() {
-        reminder_parts.push(format!("## Tool Calls\n{}", tool_sections.join("\n\n")));
+        reminder_parts.push(format!("## 工具调用\n{}", tool_sections.join("\n\n")));
     }
 
-    // response_format 降级：将格式约束注入到 <arg_key>  block
+    // response_format 降级：将格式约束注入到 <arg_key> 块中
     let format_text = req
         .response_format
         .as_ref()
         .map(format_response_text)
         .unwrap_or_default();
     if !format_text.is_empty() {
-        reminder_parts.push(format!("## Output Format\n{}", format_text));
+        reminder_parts.push(format!("## 输出格式\n{}", format_text));
     }
 
     if !reminder_parts.is_empty() {
         let reminder_body = reminder_parts.join("\n\n");
 
-        // System 尾部注入完整 reminder（不含"嗯"prefixes，含Tool definition）
+        // System 尾部注入完整 reminder（不含"嗯"前缀，含工具定义）
         let sys_content = format!("\n\n{}", reminder_body);
         if let Some(sys) = parts.iter_mut().find(|p| p.starts_with("<｜System｜>")) {
             if let Some(end) = sys.rfind('\n') {
@@ -166,17 +166,17 @@ pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> Str
             parts.insert(0, format!("<｜System｜>{}\n", sys_content));
         }
 
-        // <think> 中不含Tool definition，只含格式规范和调用指令
+        // <think> 中不含工具定义，只含格式规范和调用指令
         let mut think_sections: Vec<String> = Vec::new();
         if let Some(text) = tool_ctx.format_block.as_deref() {
-            think_sections.push(format!("### Format specification\n{}", text));
+            think_sections.push(format!("### 格式规范\n{}", text));
         }
         if let Some(text) = tool_ctx.instruction_text.as_deref() {
-            think_sections.push(format!("### Call instructions\n{}", text));
+            think_sections.push(format!("### 调用指令\n{}", text));
         }
         let mut think_parts: Vec<String> = Vec::new();
         if !think_sections.is_empty() {
-            think_parts.push(format!("## Tool Calls\n{}", think_sections.join("\n\n")));
+            think_parts.push(format!("## 工具调用\n{}", think_sections.join("\n\n")));
         }
         // response_format only in think
         let think_format_text = req
@@ -185,7 +185,7 @@ pub(crate) fn build(req: &ChatCompletionsRequest, tool_ctx: &ToolContext) -> Str
             .map(format_response_text)
             .unwrap_or_default();
         if !think_format_text.is_empty() {
-            think_parts.push(format!("## Output Format\n{}", think_format_text));
+            think_parts.push(format!("## 输出格式\n{}", think_format_text));
         }
         if !think_parts.is_empty() {
             let think_reminder = format!(
@@ -317,13 +317,13 @@ fn format_part(part: &ContentPart) -> String {
         "text" => part.text.clone().unwrap_or_default(),
         "refusal" => part.refusal.clone().unwrap_or_default(),
         "image_url" => part.image_url.as_ref().map_or_else(
-            || "[Image]".to_string(),
+            || "[图片]".to_string(),
             |img| {
                 if img.url.starts_with("http://") || img.url.starts_with("https://") {
-                    format!("[Please visit this link: {}]", img.url)
+                    format!("[请访问这个链接: {}]", img.url)
                 } else {
                     let detail = img.detail.as_deref().unwrap_or("auto");
-                    format!("[Image: detail={detail}]")
+                    format!("[图片: detail={detail}]")
                 }
             },
         ),
@@ -333,7 +333,7 @@ fn format_part(part: &ContentPart) -> String {
                 .as_ref()
                 .map(|a| a.format.as_str())
                 .unwrap_or("unknown");
-            format!("[Audio: format={fmt}]")
+            format!("[音频: format={fmt}]")
         }
         "file" => {
             let filename = part
@@ -343,10 +343,10 @@ fn format_part(part: &ContentPart) -> String {
                 .unwrap_or("unknown");
             let desc = part.text.as_deref().filter(|t| !t.is_empty());
             desc.map_or_else(
-                || format!("[File: filename={filename}]"),
-                |d| format!("[File: {d} (filename={filename})]"),
+                || format!("[文件: filename={filename}]"),
+                |d| format!("[文件: {d} (filename={filename})]"),
             )
         }
-        _ => format!("[Unsupported content type: {}]", part.ty),
+        _ => format!("[未支持的内容类型: {}]", part.ty),
     }
 }

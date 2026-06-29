@@ -1,4 +1,4 @@
-//! Anthropic Models API response generation
+//! Anthropic Models API 响应生成
 //!
 //! 基于 openai_adapter 的 ModelList，转换为 Anthropic /v1/models 响应格式。
 
@@ -10,10 +10,10 @@ use crate::openai_adapter::types::OpenAIModel;
 use crate::openai_adapter::types::OpenAIModelList;
 
 // ============================================================================
-// Anthropic protocol types
+// Anthropic 协议类型
 // ============================================================================
 
-/// Model capability info
+/// 模型能力信息
 #[derive(Debug, Serialize, Deserialize)]
 struct ModelCapabilities {
     thinking: ThinkingCapability,
@@ -22,27 +22,27 @@ struct ModelCapabilities {
     structured_outputs: CapabilitySupport,
 }
 
-/// Thinking capability
+/// Thinking 能力
 #[derive(Debug, Serialize, Deserialize)]
 struct ThinkingCapability {
     supported: bool,
     types: ThinkingTypes,
 }
 
-/// Thinking type support
+/// Thinking 类型支持
 #[derive(Debug, Serialize, Deserialize)]
 struct ThinkingTypes {
     enabled: CapabilitySupport,
     adaptive: CapabilitySupport,
 }
 
-/// Single capability support
+/// 单项能力支持
 #[derive(Debug, Serialize, Deserialize)]
 struct CapabilitySupport {
     supported: bool,
 }
 
-/// Single model info
+/// 单个模型信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnthropicModel {
     id: String,
@@ -57,7 +57,7 @@ pub struct AnthropicModel {
     capabilities: ModelCapabilities,
 }
 
-/// Model list response
+/// 模型列表响应
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AnthropicModelList {
     data: Vec<AnthropicModel>,
@@ -70,9 +70,9 @@ pub struct AnthropicModelList {
 // 响应生成
 // ============================================================================
 
-/// Generate Anthropic format response from OpenAI ModelList
+/// 根据 OpenAI ModelList 生成 Anthropic 格式响应
 pub(crate) fn list(list: &OpenAIModelList) -> AnthropicModelList {
-    debug!(target: "anthropic_compat::models", "generating model list");
+    debug!(target: "anthropic_compat::models", "生成模型列表");
 
     let data: Vec<AnthropicModel> = list.data.iter().map(to_anthropic_model).collect();
 
@@ -87,7 +87,7 @@ pub(crate) fn list(list: &OpenAIModelList) -> AnthropicModelList {
     }
 }
 
-/// Query a single model
+/// 查询单个模型
 pub(crate) fn get(list: &OpenAIModelList, model_id: &str) -> Option<AnthropicModel> {
     list.data
         .iter()
@@ -96,7 +96,7 @@ pub(crate) fn get(list: &OpenAIModelList, model_id: &str) -> Option<AnthropicMod
 }
 
 // ============================================================================
-// Model mapping
+// 模型映射
 // ============================================================================
 
 fn to_anthropic_model(m: &OpenAIModel) -> AnthropicModel {
@@ -124,7 +124,7 @@ fn to_anthropic_model(m: &OpenAIModel) -> AnthropicModel {
     }
 }
 
-/// Parse "deepseek-expert" to "DeepSeek Expert"
+/// 将 "deepseek-expert" 解析为 "DeepSeek Expert"
 fn id_to_display_name(id: &str) -> String {
     id.split('-')
         .map(|word| {

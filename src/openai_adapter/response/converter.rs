@@ -1,4 +1,4 @@
-//! OpenAI Chunk generator — map StreamEvent to ChatCompletionsResponseChunk
+//! OpenAI Chunk 生成器 —— 将 StreamEvent 映射为 ChatCompletionsResponseChunk
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -48,7 +48,7 @@ pub(crate) fn make_chunk(
 }
 
 pin_project! {
-    // Stream converter that maps StreamEvent incremental events to OpenAI ChatCompletionsResponseChunk
+    // 将 StreamEvent 增量事件映射为 OpenAI ChatCompletionsResponseChunk 的流转换器
     pub struct ConverterStream<S> {
         #[pin]
         inner: S,
@@ -109,7 +109,7 @@ where
                         })));
                     }
                     StreamEvent::ThinkStart => {
-                        // Converter does not need special handling for ThinkStart
+                        // 转换器不需要对 ThinkStart 做特殊处理
                         continue;
                     }
                     StreamEvent::ThinkDelta { content } => {
@@ -155,7 +155,7 @@ where
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
                 Poll::Ready(None) => {
                     if !*this.finished {
-                        warn!(target: "adapter", "Converter stream ended early: model={}", this.model);
+                        warn!(target: "adapter", "转换器流提前结束: model={}", this.model);
                     }
                     return Poll::Ready(None);
                 }

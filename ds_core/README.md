@@ -1,106 +1,106 @@
 # ds_core
 
-DeepSeek API client library. Encapsulates the complete workflow for interacting with the DeepSeek backend: login authentication, account pool management, PoW computation, session management, file upload, SSE stream parsing, and oversize fallback strategies.
+DeepSeek API 客户端库。封装了与 DeepSeek 后端交互的完整流程：登录鉴权、账号池管理、PoW 计算、会话管理、文件上传、SSE 流解析和超限回退策略。
 
-## Responsibility Boundaries
+## 职责边界
 
-ds_core is a **standalone library crate** that does not depend on any types from the main crate:
+ds_core 是一个**独立的库 crate**，不依赖主 crate 的任何类型：
 
-- **No dependency** on HTTP frameworks (axum/warp etc.)
-- **No awareness** of OpenAI / Anthropic protocols
-- **No involvement** in API key authentication, request statistics, admin panel
-- All configuration injected via `DsCoreConfig` / `AccountConfig`
+- **不依赖** HTTP 框架（axum/warp 等）
+- **不感知** OpenAI / Anthropic 协议
+- **不涉及** API 密钥鉴权、请求统计、管理后台
+- 所有配置通过 `DsCoreConfig` / `AccountConfig` 注入
 
-## Module Architecture
+## 模块架构
 
 ```
 ds_core/src/
-├── lib.rs           ── Public API re-exports + DsCore/CoreError
-├── accounts.rs      ── Accounts facade, integrates client/pool/solver
+├── lib.rs           ── 公开 API 重导出 + DsCore/CoreError
+├── accounts.rs      ── Accounts 门面，整合 client/pool/solver
 ├── accounts/
-│   ├── client.rs    ── DsClient: DeepSeek REST client
-│   ├── pool.rs      ── AccountPool: account pool, state management, recovery
-│   └── pow.rs       ── PowSolver: WASM PoW solver
-├── chat.rs          ── Chat facade, dispatches by prompt size
+│   ├── client.rs    ── DsClient：DeepSeek REST 客户端
+│   ├── pool.rs      ── AccountPool：账号池、状态管理、恢复
+│   └── pow.rs       ── PowSolver：WASM PoW 求解器
+├── chat.rs          ── Chat 门面，按 prompt 大小分流
 ├── chat/
-│   ├── request.rs   ── Three request paths (normal/history file/chunked write)
-│   └── response.rs  ── ResponseStream: SSE parsing + streamlined event protocol
+│   ├── request.rs   ── 三种请求路径（正常/历史文件/分块写入）
+│   └── response.rs  ── ResponseStream：SSE 解析 + 精简事件协议
 └── config.rs        ── DsCoreConfig / AccountConfig
 ```
 
-## Core Flow
+## 核心流程
 
 ```
-Main Crate
+主 crate
   │  DsCore::v0_chat(ChatRequest) → Result<ChatResponse, CoreError>
   ▼
 DsCore
-  │  Forwards to Chat::v0_chat()
+  │  转发到 Chat::v0_chat()
   ▼
 Chat
-  │  Determines if prompt exceeds limit
-  ├── Not oversized → v0_chat_once(): get account → create session → upload files → PoW → completion
-  ├── Oversized + default → v0_chat_oversized_file(): split history into file uploads + inline latest turn
-  └── Oversized + expert → v0_chat_oversized_chunk(): chunked write to session + normal completion for last chunk
+  │  判断 prompt 是否超限
+  ├── 不超限 → v0_chat_once()：获取账号 → 创建 session → 上传文件 → PoW → completion
+  ├── 超限 default → v0_chat_oversized_file()：拆分历史为文件上传 + 内联最新轮
+  └── 超限 expert → v0_chat_oversized_chunk()：分块写入 session + 末块正常 completion
   ▼
 ResponseStream
-  │  StreamEvent stream (Meta, ThinkStart, ThinkDelta, ContentStart, ContentDelta, Done)
+  │  StreamEvent 流（Meta, ThinkStart, ThinkDelta, ContentStart, ContentDelta, Done）
   ▼
-Main Crate consumes StreamEvent stream
+主 crate 消费 StreamEvent 流
 ```
 
-## Core Types
+## 核心类型
 
-### `DsCore` — Unified Entry Point
+### `DsCore` — 统一入口
 
 ```rust
 pub struct DsCore { /* accounts + chat */ }
 
 impl DsCore {
-    // Create instance (initializes account pool, loads WASM, health check)
+    // 创建实例（初始化账号池、加载 WASM、健康检查）
     pub async fn new(config: &DsCoreConfig, account_creds: Vec<AccountConfig>)
         -> Result<Self, CoreError>;
 
-    // Initiate conversation, returns streamlined protocol event stream
+    // 发起对话，返回精简协议事件流
     pub async fn v0_chat(&self, req: ChatRequest, request_id: &str)
         -> Result<ChatResponse, CoreError>;
 
-    // Query account statuses
+    // 查询账号状态
     pub fn account_statuses(&self) -> Vec<AccountStatus>;
 
-    // Dynamically add/remove accounts
+    // 动态增删账号
     pub async fn add_account(&self, creds: &AccountConfig) -> Result<String, PoolError>;
     pub async fn remove_account(&self, email_or_mobile: &str) -> Result<String, PoolError>;
 
-    // Re-login
+    // 重新登录
     pub async fn re_login_single(&self, email_or_mobile: &str) -> Result<(), String>;
 
-    // Graceful shutdown
+    // 优雅关闭
     pub async fn shutdown(&self);
 
-    // Hot-reload configuration
+    // 热重载配置
     pub async fn reload_config(&self, config: &DsCoreConfig) -> Result<(), CoreError>;
 }
 ```
 
-### `ChatRequest` — Conversation Request
+### `ChatRequest` — 对话请求
 
 ```rust
 pub struct ChatRequest {
-    pub prompt: String,           // Conversation prompt (passed through to DeepSeek backend)
-    pub thinking_enabled: bool,   // Whether to enable thinking
-    pub search_enabled: bool,     // Whether to enable web search
-    pub model_type: String,       // Model type: e.g. "default" / "expert"
-    pub files: Vec<FilePayload>,  // Files to upload
+    pub prompt: String,           // 对话 prompt（透传给 DeepSeek 后端）
+    pub thinking_enabled: bool,   // 是否启用思考
+    pub search_enabled: bool,     // 是否启用联网搜索
+    pub model_type: String,       // 模型类型：如 "default" / "expert"
+    pub files: Vec<FilePayload>,  // 待上传文件
 }
 ```
 
-`prompt` uses DeepSeek native tag format:
+`prompt` 使用 DeepSeek 原生标签格式：
 ```
-<|User|>Hello<|Assistant|>
+<｜User｜>你好<｜Assistant｜>
 ```
 
-### `ChatResponse` — Conversation Response
+### `ChatResponse` — 对话响应
 
 ```rust
 pub struct ChatResponse {
@@ -108,37 +108,37 @@ pub struct ChatResponse {
 }
 ```
 
-### `StreamEvent` — Streamlined Response Protocol
+### `StreamEvent` — 精简响应协议
 
-`StreamEvent` abstracts DeepSeek's complex p/o/v patch protocol into 6 structured events.
+`StreamEvent` 将 DeepSeek 底层复杂的 p/o/v patch 协议抽象为 6 种结构化事件。
 
-| Event | Meaning |
-|-------|---------|
-| `Meta { account_id }` | Stream start, carries the account ID used |
-| `ThinkStart` | Model begins thinking |
-| `ThinkDelta { content }` | Incremental thinking content fragment |
-| `ContentStart` | Model begins outputting final content |
-| `ContentDelta { content }` | Incremental final content fragment |
-| `Done { finish_reason, accumulated_token_usage }` | Stream end. `finish_reason = Some("stop")` normal completion, `None` abnormal termination; `accumulated_token_usage` carries cumulative token usage |
+| 事件 | 含义 |
+|------|------|
+| `Meta { account_id }` | 流起始，携带使用的账号 ID |
+| `ThinkStart` | 模型开始思考 |
+| `ThinkDelta { content }` | 思考内容的增量片段 |
+| `ContentStart` | 模型开始输出最终内容 |
+| `ContentDelta { content }` | 最终内容的增量片段 |
+| `Done { finish_reason, accumulated_token_usage }` | 流结束。`finish_reason = Some("stop")` 正常完成，`None` 异常终止；`accumulated_token_usage` 携带累计 token 消耗 |
 
-**Event sequence guarantee**:
+**事件序列保证**：
 ```
 Meta → (ThinkStart → ThinkDelta* → ContentStart → ContentDelta* | ContentStart → ContentDelta*) → Done
 ```
-I.e.: `ThinkStart` followed by 0 or more `ThinkDelta`; `ContentStart` followed by 0 or more `ContentDelta`; thinking and content phases appear at most once each.
+即：`ThinkStart` 后紧跟 0 或多个 `ThinkDelta`；`ContentStart` 后紧跟 0 或多个 `ContentDelta`；思考阶段和内容阶段最多各出现一次。
 
-### `CoreError` — Error Type
+### `CoreError` — 错误类型
 
 ```rust
 pub enum CoreError {
-    Overloaded,                           // No available accounts
-    ProofOfWorkFailed(PowError),          // PoW computation failed
-    ProviderError(String),                // Provider error (network, business, etc.)
-    Stream(String),                       // Stream processing error
+    Overloaded,                           // 无可用账号
+    ProofOfWorkFailed(PowError),          // PoW 计算失败
+    ProviderError(String),                // 提供商错误（网络、业务等）
+    Stream(String),                       // 流处理错误
 }
 ```
 
-### `AccountStatus` — Account State
+### `AccountStatus` — 账号状态
 
 ```rust
 pub struct AccountStatus {
@@ -150,19 +150,19 @@ pub struct AccountStatus {
 }
 ```
 
-## Configuration Types
+## 配置类型
 
 ```rust
 pub struct DsCoreConfig {
-    pub api_base: String,              // DeepSeek API base URL
-    pub wasm_url: String,              // PoW WASM file URL
-    pub user_agent: String,            // Browser UA
+    pub api_base: String,              // DeepSeek API 基础 URL
+    pub wasm_url: String,              // PoW WASM 文件 URL
+    pub user_agent: String,            // 浏览器 UA
     pub client_version: String,        // X-Client-Version
     pub client_platform: String,       // X-Client-Platform
     pub client_locale: String,         // X-Client-Locale
-    pub proxy_url: Option<String>,     // Proxy URL (non-US IP to bypass WAF)
-    pub model_types: Vec<String>,      // Model type list
-    pub input_character_limits: Vec<u32>, // Character limit per model type
+    pub proxy_url: Option<String>,     // 代理 URL（非 US IP 绕过 WAF）
+    pub model_types: Vec<String>,      // 模型类型列表
+    pub input_character_limits: Vec<u32>, // 每种模型的字符数限制
 }
 
 pub struct AccountConfig {
@@ -173,57 +173,57 @@ pub struct AccountConfig {
 }
 ```
 
-## Account Pool Model
+## 账号池模型
 
-- 1 account = 1 concurrency. Multiple concurrent requests need multiple accounts.
-- `AccountGuard` auto-releases the account on `Drop`, ensuring no leaks.
-- Account initialization: login → create_session → health_check → update_title
-- Failed accounts are marked as `Invalid` (still kept in pool for frontend display).
-- Background recovery task scans `Error` accounts every 60 seconds and attempts re-login.
-- 3 consecutive login failures marks account as `Invalid`.
+- 1 账号 = 1 并发。多并发需要多个账号。
+- `AccountGuard` 通过 `Drop` 自动释放账号，保证不泄漏。
+- 账号初始化：login → create_session → health_check → update_title
+- 失败账号标记为 `Invalid`（仍入池以便前台展示）。
+- 后台恢复任务每 60 秒扫描 `Error` 账号并尝试重新登录。
+- 连续 3 次登录失败标记为 `Invalid`。
 
-## Request Dispatch Strategy
+## 请求分流策略
 
-Chat module routes based on whether prompt character count exceeds 75% of the model limit:
+Chat 模块根据 prompt 字符数是否超过模型限制的 75% 决定路由：
 
-| Condition | Path | Description |
-|-----------|------|-------------|
-| Prompt not oversized | `v0_chat_once` | Direct completion |
-| Oversized + `model_type=expert` | `v0_chat_oversized_chunk` | Chunked write to session, normal completion for last chunk |
-| Oversized + other model_type | `v0_chat_oversized_file` | Split history into file uploads |
+| 条件 | 路径 | 说明 |
+|------|------|------|
+| prompt 不超限 | `v0_chat_once` | 直发 completion |
+| 超限 + `model_type=expert` | `v0_chat_oversized_chunk` | 分块写入 session，末块正常 completion |
+| 超限 + 其他 model_type | `v0_chat_oversized_file` | 拆分历史为文件上传 |
 
-**History splitting logic**: Find all conversation before the last `<|Assistant|>` block, wrap in `[file content end]` ... `[file content begin]` format and upload as txt file; last assistant block + latest user turn sent inline.
+**历史拆分逻辑**：找到最后一个 `<｜Assistant｜>` 块之前的全部对话，包装为 `[file content end]` … `[file content begin]` 格式上传为 txt 文件；最后一个 assistant 块 + 最新的 user 转内联发送。
 
-## File Upload
+## 文件上传
 
-- Main crate passes file data via `FilePayload`.
-- Upload process: `upload_file(multipart)` → `fetch_files` poll until SUCCESS (up to 30 times, 2s interval).
-- Also requires computing PoW targeting `/api/v0/file/upload_file`.
+- 主 crate 通过 `FilePayload` 传入文件数据。
+- 上传过程：`upload_file(multipart)` → `fetch_files` 轮询至 SUCCESS（最多 30 次，2s 间隔）。
+- 同时需要计算针对 `/api/v0/file/upload_file` 的 PoW。
 
-## PoW Flow
+## PoW 流程
 
-1. `create_pow_challenge(target_path)` obtains challenge / salt / difficulty
-2. `PowSolver::solve(&challenge)` WASM computes the answer
-3. `PowResult::to_header()` → base64 encoding
-4. Placed in `X-Ds-Pow-Response` header
+1. `create_pow_challenge(target_path)` 获取 challenge / salt / difficulty
+2. `PowSolver::solve(&challenge)` WASM 计算答案
+3. `PowResult::to_header()` → base64 编码
+4. 放入 `X-Ds-Pow-Response` header
 
-## Error Handling Chain
+## 错误处理链
 
 ```
-DsClient  HTTP layer errors ─┐
-          Business errors ───┤
-          JSON errors ───────┤
-          WAF interception ──┤
-                            ▼
-                     ClientError
-                        │
-                        ▼
-                    PoolError        ── Account pool error
-                    PowError         ── PoW computation error
-                        │
-                        ▼
-                    CoreError        ── Unified error type
-                        │
-                        ▼
-                Main crate translates by protocol
+DsClient  HTTP 层错误 ─┐
+          业务错误 ────┤
+          JSON 错误 ───┤
+          WAF 拦截 ────┤
+                      ▼
+               ClientError
+                  │
+                  ▼
+              PoolError        ── 账号池错误
+              PowError         ── PoW 计算错误
+                  │
+                  ▼
+              CoreError        ── 统一错误类型
+                  │
+                  ▼
+          主 crate 根据协议转换
 ```

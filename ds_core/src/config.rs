@@ -1,8 +1,8 @@
-//! DeepSeek core configuration — independent from the root crate's Config
+//! DeepSeek 核心配置 —— 独立于根 crate 的 Config
 //!
-//! Constructed from the root crate's `Config` via conversion.
+//! 由根 crate 的 `Config` 构造转换而来。
 
-/// Configuration required by ds_core (constructed from a subset of the root crate's Config)
+/// ds_core 所需的配置（从根 crate Config 的子集构造）
 #[derive(Debug, Clone)]
 pub struct DsCoreConfig {
     pub api_base: String,
@@ -16,7 +16,7 @@ pub struct DsCoreConfig {
     pub input_character_limits: Vec<u32>,
 }
 
-/// Individual account configuration
+/// 单个账号配置
 #[derive(Debug, Clone)]
 pub struct AccountConfig {
     pub email: String,

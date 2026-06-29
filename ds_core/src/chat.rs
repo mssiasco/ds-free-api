@@ -1,7 +1,7 @@
-//! Chat module — request dispatch and response stream processing
+//! 对话模块 —— 请求分流与响应流处理
 //!
-//! Acquires account resources through the accounts module, dispatches prompts by size
-//! to different request paths, and returns SSE byte streams with account guards.
+//! 通过 accounts 模块获取账号资源，将 prompt 按大小分发到不同的请求路径，
+//! 返回带账号守卫的 SSE 字节流。
 
 mod request;
 mod response;
@@ -16,9 +16,9 @@ use response::ActiveSession;
 pub use request::{ChatRequest, ChatResponse, FilePayload};
 pub use response::StreamEvent;
 
-/// Unified entry point for the chat module
+/// 对话模块的统一入口
 ///
-/// Holds a reference to accounts, responsible for prompt dispatch and returning wrapped streams.
+/// 持有对 accounts 的引用，负责 prompt 分流并返回包装后的流。
 pub struct Chat {
     accounts: Arc<Accounts>,
     active_sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
@@ -27,7 +27,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    /// Create the chat module
+    /// 创建对话模块
     pub fn new(accounts: Arc<Accounts>, config: &DsCoreConfig) -> Self {
         Self {
             accounts,
@@ -37,7 +37,7 @@ impl Chat {
         }
     }
 
-    /// Get the input_character_limit for the specified model_type
+    /// 获取指定 model_type 的 input_character_limit
     fn input_character_limit_for(&self, model_type: &str) -> usize {
         self.model_types
             .iter()
@@ -48,7 +48,7 @@ impl Chat {
             .unwrap_or(163_840)
     }
 
-    /// Graceful shutdown: clean up all remaining active sessions
+    /// 优雅关闭：清理所有残留的活跃 session
     pub async fn shutdown(&self) {
         let sessions = {
             let mut map = self.active_sessions.lock().unwrap();
@@ -61,7 +61,7 @@ impl Chat {
 
         log::info!(
             target: "ds_core::accounts",
-            "shutdown: cleaning up {} remaining sessions", sessions.len()
+            "shutdown: 清理 {} 个残留 session", sessions.len()
         );
 
         use crate::accounts::StopStreamPayload;
@@ -83,7 +83,7 @@ impl Chat {
                         .inspect_err(|e| {
                             log::warn!(
                                 target: "ds_core::accounts",
-                                "shutdown: failed to clean up session {}: {}",
+                                "shutdown 清理 session {} 失败: {}",
                                 s.session_id, e
                             );
                         });

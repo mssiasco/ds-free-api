@@ -1,11 +1,11 @@
-//! PoW solver — DeepSeekHashV1 algorithm implementation based on DeepSeek WASM
+//! PoW 计算器 —— 基于 DeepSeek WASM 的 DeepSeekHashV1 算法实现
 //!
-//! Dynamically probes wasm-bindgen export symbols by signature, avoiding hardcoded
-//! __wbindgen_export_0 which would break when DeepSeek updates the WASM.
+//! 通过签名动态探测 wasm-bindgen 导出符号，避免硬编码 __wbindgen_export_0 导致
+//! DeepSeek 更新 WASM 后无法启动。
 
 use wasmtime::{AsContextMut, Engine, InstancePre, Linker, Module, Store, ValType};
 
-// Reuse client's ChallengeData to avoid duplicate definitions
+// 复用 client 的 ChallengeData，避免重复定义
 pub use super::client::ChallengeData as Challenge;
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct PowResult {
 }
 
 impl PowResult {
-    /// Convert PoW result to a base64-encoded header
+    /// 将 PoW 结果转换为 base64 编码的 header
     pub fn to_header(&self) -> String {
         let json = serde_json::json!({
             "algorithm": self.algorithm,
@@ -79,7 +79,7 @@ impl PowSolver {
             PowError::WasmInit("__wbindgen_add_to_stack_pointer not found".to_string())
         })?;
 
-        // allocator: prefer __wbindgen_malloc, fall back to signature-matched __wbindgen_export_*
+        // allocator: 优先找 __wbindgen_malloc，其次是签名匹配的 __wbindgen_export_*
         let alloc_name = find_export_by_names(
             &exports,
             &["__wbindgen_malloc"],
@@ -96,7 +96,7 @@ impl PowSolver {
         })
         .ok_or_else(|| PowError::WasmInit("allocator export not found".to_string()))?;
 
-        // wasm_solve: prefer explicit name, then probe by unique signature (i32, i32, i32, i32, i32, f64) -> ()
+        // wasm_solve: 优先显式名称，再按唯一签名 (i32, i32, i32, i32, i32, f64) -> () 探测
         let solve_name = find_export_by_names(
             &exports,
             &["wasm_solve"],
@@ -222,7 +222,7 @@ impl PowSolver {
     }
 }
 
-// ── WASM helper functions ──────────────────────────────────────────────
+// ── WASM 辅助函数 ──────────────────────────────────────────────────────
 
 fn write_string(
     store: &mut impl AsContextMut,

@@ -1,4 +1,4 @@
-//! Authentication module — JWT signing/verification + login failure rate limiting
+//! 鉴权模块 —— JWT 签发/验证 + 登录失败率限制
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -33,7 +33,7 @@ fn base64url_decode(data: &str) -> Option<Vec<u8>> {
         .ok()
 }
 
-/// Issue a JWT
+/// 签发 JWT
 pub async fn sign_jwt(store: &StoreManager) -> Option<String> {
     let secret = store.jwt_secret().await?;
     let now = epoch_secs();
@@ -55,12 +55,12 @@ pub async fn sign_jwt(store: &StoreManager) -> Option<String> {
 
     let token = format!("{}.{}", signing_input, sig_b64);
 
-    // Update jwt_issued_at (used to revoke old tokens)
+    // 更新 jwt_issued_at（用于吊销旧 token）
     store.set_jwt_issued_at(now).await;
     Some(token)
 }
 
-/// Verify JWT, returns whether it is valid
+/// 验证 JWT，返回是否有效
 pub async fn verify_jwt(store: &StoreManager, token: &str) -> bool {
     let Some(secret) = store.jwt_secret().await else {
         return false;
@@ -71,7 +71,7 @@ pub async fn verify_jwt(store: &StoreManager, token: &str) -> bool {
         return false;
     }
 
-    // Verify HMAC-SHA256 signature
+    // 验证 HMAC-SHA256 签名
     let signing_input = format!("{}.{}", parts[0], parts[1]);
     let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
         return false;
@@ -83,12 +83,12 @@ pub async fn verify_jwt(store: &StoreManager, token: &str) -> bool {
         return false;
     };
 
-    // CtOutput derefs to [u8], can be compared directly
+    // CtOutput deref 到 [u8]，可以直接比较
     if &*expected != sig_bytes.as_slice() {
         return false;
     }
 
-    // Parse payload
+    // 解析 payload
     let Some(payload_bytes) = base64url_decode(parts[1]) else {
         return false;
     };
@@ -104,17 +104,17 @@ pub async fn verify_jwt(store: &StoreManager, token: &str) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    // sub is only used for deserialization validation, no need to read it
+    // sub 仅用于反序列化验证，不需要读取
     let _ = payload.sub;
 
-    // Expiration check (60 second leeway, aligned with original jsonwebtoken behavior)
+    // 过期检查（60 秒 leeway，对齐原 jsonwebtoken 行为）
     let now = epoch_secs();
     if now > payload.exp + 60 {
         return false;
     }
 
-    // Revocation check: token's iat must be >= stored jwt_issued_at
-    // Changing password updates jwt_issued_at, invalidating old tokens
+    // 吊销检查：token 的 iat 必须 >= 存储的 jwt_issued_at
+    // 改密码时会更新 jwt_issued_at，使旧 token 失效
     if let Some(min_iat) = store.jwt_issued_at().await
         && payload.iat < min_iat
     {
@@ -124,16 +124,16 @@ pub async fn verify_jwt(store: &StoreManager, token: &str) -> bool {
     true
 }
 
-// ── Login failure rate limiting ─────────────────────────────────────────────────
+// ── 登录失败率限制 ────────────────────────────────────────────────────────
 
-/// Maximum failure count
+/// 最大失败次数
 const MAX_FAILURES: u64 = 5;
-/// Lockout duration
-const LOCKOUT_SECS: u64 = 300; // 5 minutes
+/// 锁定时长
+const LOCKOUT_SECS: u64 = 300; // 5 分钟
 
 pub struct LoginLimiter {
     fail_count: AtomicU64,
-    locked_until: AtomicU64, // epoch secs, 0 means not locked
+    locked_until: AtomicU64, // epoch secs，0 表示未锁定
 }
 
 impl LoginLimiter {
@@ -144,14 +144,14 @@ impl LoginLimiter {
         }
     }
 
-    /// Check if locked out
+    /// 检查是否被锁定
     pub fn is_locked(&self) -> bool {
         let until = self.locked_until.load(Ordering::Relaxed);
         if until == 0 {
             return false;
         }
         if epoch_secs() >= until {
-            // Lockout expired, reset
+            // 锁定已过期，重置
             self.locked_until.store(0, Ordering::Relaxed);
             self.fail_count.store(0, Ordering::Relaxed);
             return false;
@@ -159,7 +159,7 @@ impl LoginLimiter {
         true
     }
 
-    /// Record a failure
+    /// 记录一次失败
     pub fn record_failure(&self) {
         let count = self.fail_count.fetch_add(1, Ordering::Relaxed) + 1;
         if count >= MAX_FAILURES {
@@ -168,13 +168,13 @@ impl LoginLimiter {
         }
     }
 
-    /// Record success, reset count
+    /// 记录成功，重置计数
     pub fn record_success(&self) {
         self.fail_count.store(0, Ordering::Relaxed);
         self.locked_until.store(0, Ordering::Relaxed);
     }
 
-    /// Remaining lockout seconds
+    /// 剩余锁定秒数
     pub fn remaining_lock_secs(&self) -> u64 {
         let until = self.locked_until.load(Ordering::Relaxed);
         if until == 0 {
@@ -194,28 +194,28 @@ fn epoch_secs() -> u64 {
         .as_secs()
 }
 
-// ── High-level management functions ──────────────────────────────────────────────
+// ── 高层管理函数 ──────────────────────────────────────────────────────────
 
-/// First-time admin password setup, returns JWT token
+/// 首次设置管理员密码，返回 JWT token
 pub async fn setup_admin(
     store: &StoreManager,
     limiter: &LoginLimiter,
     password: &str,
 ) -> Result<String, String> {
     if store.has_password().await {
-        return Err("Password already set, please use the login endpoint".into());
+        return Err("密码已设置，请使用登录接口".into());
     }
 
     if limiter.is_locked() {
         return Err(format!(
-            "Too many attempts, please retry after {} seconds",
+            "请求次数过多，请 {} 秒后重试",
             limiter.remaining_lock_secs()
         ));
     }
 
     if password.len() < 6 {
         limiter.record_failure();
-        return Err("Password must be at least 6 characters".into());
+        return Err("密码长度至少 6 位".into());
     }
 
     let password_hash = super::store::hash_password(password);
@@ -223,33 +223,33 @@ pub async fn setup_admin(
     store
         .save_admin(password_hash, jwt_secret, 0)
         .await
-        .map_err(|e| format!("Save failed: {}", e))?;
+        .map_err(|e| format!("保存失败: {}", e))?;
 
-    sign_jwt(store).await.ok_or_else(|| "JWT issuance failed".into())
+    sign_jwt(store).await.ok_or_else(|| "JWT 签发失败".into())
 }
 
-/// Password login, returns JWT token
+/// 密码登录，返回 JWT token
 pub async fn login_admin(
     store: &StoreManager,
     limiter: &LoginLimiter,
     password: &str,
 ) -> Result<String, String> {
     if !store.has_password().await {
-        return Err("Password not set, please use the setup endpoint first".into());
+        return Err("未设置密码，请先使用 setup 接口".into());
     }
 
     if limiter.is_locked() {
         return Err(format!(
-            "Too many login failures, please retry after {} seconds",
+            "登录失败次数过多，请 {} 秒后重试",
             limiter.remaining_lock_secs()
         ));
     }
 
     if store.verify_password(password).await {
         limiter.record_success();
-        sign_jwt(store).await.ok_or_else(|| "JWT issuance failed".into())
+        sign_jwt(store).await.ok_or_else(|| "JWT 签发失败".into())
     } else {
         limiter.record_failure();
-        Err("Incorrect password".into())
+        Err("密码错误".into())
     }
 }

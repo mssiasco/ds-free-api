@@ -1,75 +1,75 @@
-//! Configuration loading module — unified configuration entry point
+//! 配置加载模块 —— 统一配置入口
 //!
-//! Supports `-c <path>` command-line argument; defaults are defined in the functions below.
-//! Commented-out items in config.toml use the code defaults.
+//! 支持 `-c <path>` 命令行参数，默认值见下方函数。
+//! config.toml 中注释项使用代码默认值。
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Root application configuration structure
+/// 应用配置根结构
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    /// DeepSeek core configuration (accounts, client, models, etc.)
+    /// DeepSeek 核心配置（账号、客户端、模型等）
     pub ds_core: DsCoreSection,
-    /// HTTP server configuration (required)
+    /// HTTP 服务器配置（必填）
     pub server: ServerConfig,
-    /// Proxy configuration (optional, used to bypass WAF)
+    /// 代理配置（可选，用于绕过 WAF）
     #[serde(default)]
     pub proxy: ProxyConfig,
-    /// Admin configuration (bcrypt password hash, JWT secret, etc., managed by admin panel)
+    /// Admin 配置（bcrypt 密码哈希、JWT 密钥等，由管理面板管理）
     #[serde(default)]
     pub admin: AdminConfig,
-    /// API Key list (managed by admin panel)
+    /// API Key 列表（由管理面板管理）
     #[serde(default)]
     pub api_keys: Vec<ApiKeyEntry>,
 }
 
-/// DeepSeek core configuration section — corresponds to [ds_core] in config.toml
+/// DeepSeek 核心配置段 —— 对应 config.toml 的 [ds_core]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DsCoreSection {
-    /// Account pool (required, can be empty — add via admin panel after startup)
+    /// 账号池（必需，可为空——启动后通过管理面板添加）
     #[serde(default)]
     pub accounts: Vec<Account>,
-    /// API base URL
+    /// API 基础地址
     #[serde(default = "default_api_base")]
     pub api_base: String,
-    /// Full URL of the WASM file (needed for PoW computation, version may change)
+    /// WASM 文件完整 URL（PoW 计算所需，版本号可能变动）
     #[serde(default = "default_wasm_url")]
     pub wasm_url: String,
-    /// User-Agent request header
+    /// User-Agent 请求头
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
-    /// X-Client-Version request header (used for expert model and other features)
+    /// X-Client-Version 请求头（用于 expert 模型等功能）
     #[serde(default = "default_client_version")]
     pub client_version: String,
-    /// X-Client-Platform request header
+    /// X-Client-Platform 请求头
     #[serde(default = "default_client_platform")]
     pub client_platform: String,
-    /// X-Client-Locale request header
+    /// X-Client-Locale 请求头
     #[serde(default = "default_client_locale")]
     pub client_locale: String,
-    /// Defines the list of supported model types; each type auto-maps to an OpenAI model_id: deepseek-<type>
+    /// 定义支持的模型类型列表，每种类型会自动映射为 OpenAI 的 model_id：deepseek-<type>
     #[serde(default = "default_model_types")]
     pub model_types: Vec<String>,
-    /// Input token limit per model type (indexed one-to-one with model_types)
+    /// 各模型类型的输入 token 限制（与 model_types 按索引一一对应）
     #[serde(default = "default_max_input_tokens")]
     pub max_input_tokens: Vec<u32>,
-    /// Output token limit per model type (indexed one-to-one with model_types)
+    /// 各模型类型的输出 token 限制（与 model_types 按索引一一对应）
     #[serde(default = "default_max_output_tokens")]
     pub max_output_tokens: Vec<u32>,
-    /// Single input character limit per model type (indexed one-to-one with model_types)
+    /// 各模型类型的单次输入字符数限制（与 model_types 按索引一一对应）
     #[serde(default = "default_input_character_limits")]
     pub input_character_limits: Vec<u32>,
-    /// Model aliases: aligned by index with model_types, no alias by default
+    /// 模型别名：按 index 对齐 model_types，默认无别名
     #[serde(default)]
     pub model_aliases: Vec<String>,
-    /// Tool call tag configuration (custom fallback tags)
+    /// 工具调用标签配置（自定义回退标签）
     #[serde(default)]
     pub tool_call: ToolCallTagConfig,
 }
 
 impl DsCoreSection {
-    /// Generate the OpenAI model registry mapping
+    /// 生成 OpenAI 模型注册表映射
     #[must_use]
     pub fn model_registry(&self) -> std::collections::HashMap<String, String> {
         let mut map = std::collections::HashMap::new();
@@ -86,60 +86,60 @@ impl DsCoreSection {
     }
 }
 
-/// Admin configuration
+/// Admin 配置
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AdminConfig {
-    /// bcrypt hashed password
+    /// bcrypt 哈希后的密码
     #[serde(default)]
     pub password_hash: String,
-    /// JWT signing secret (hex-encoded 32-byte random value)
+    /// JWT 签名密钥（hex 编码的 32 字节随机值）
     #[serde(default)]
     pub jwt_secret: String,
-    /// Most recent JWT issuance time (used to revoke old tokens)
+    /// 最近一次 JWT 签发时间（用于吊销旧 token）
     #[serde(default)]
     pub jwt_issued_at: u64,
-    /// Password change: old password in plaintext (only received via PUT, not persisted to config.toml)
+    /// 修改密码：旧密码明文（仅 PUT 接收，不落地 config.toml）
     #[serde(default, skip_serializing)]
     pub old_password: String,
-    /// Password change: new password in plaintext (only received via PUT, not persisted to config.toml)
+    /// 修改密码：新密码明文（仅 PUT 接收，不落地 config.toml）
     #[serde(default, skip_serializing)]
     pub new_password: String,
 }
 
-/// API Key entry
+/// API Key 条目
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiKeyEntry {
     pub key: String,
     pub description: String,
 }
 
-/// Single account configuration
+/// 单个账号配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Account {
-    /// Email (mutually exclusive with mobile)
+    /// 邮箱（与 mobile 二选一）
     pub email: String,
-    /// Mobile phone number (mutually exclusive with email)
+    /// 手机号（与 email 二选一）
     pub mobile: String,
-    /// Area code (used with mobile, e.g. "+86")
+    /// 区号（与 mobile 配合使用，如 "+86"）
     pub area_code: String,
-    /// Password
+    /// 密码
     pub password: String,
 }
 
-/// Proxy configuration
+/// 代理配置
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ProxyConfig {
-    /// Proxy URL, e.g. http://127.0.0.1:7890 or socks5://127.0.0.1:7891
+    /// 代理 URL，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
     pub url: Option<String>,
 }
 
-/// Tool call tag configuration
+/// 工具调用标签配置
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolCallTagConfig {
-    /// Extra start tags (built-in `<|tool_calls_begin|>` + fuzzy matching; only add variants with completely different formats here)
+    /// 额外开始标签（内置 `<|tool▁calls▁begin|>` + 模糊匹配，此处只加格式完全不同的变体）
     #[serde(default = "default_tool_call_starts")]
     pub extra_starts: Vec<String>,
-    /// Extra end tags (built-in `<|tool_calls_end|>` + fuzzy matching; only add variants with completely different formats here)
+    /// 额外结束标签（内置 `<|tool▁calls▁end|>` + 模糊匹配，此处只加格式完全不同的变体）
     #[serde(default = "default_tool_call_ends")]
     pub extra_ends: Vec<String>,
 }
@@ -153,7 +153,7 @@ impl Default for ToolCallTagConfig {
     }
 }
 
-// ── Default value functions ──────────────────────────────────────────────────────────
+// ── 默认值函数 ──────────────────────────────────────────────────────────
 
 fn default_tool_call_starts() -> Vec<String> {
     vec![
@@ -215,14 +215,14 @@ fn default_client_locale() -> String {
     "zh_CN".to_string()
 }
 
-/// HTTP server configuration (required)
+/// HTTP 服务器配置（必填）
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
-    /// Listen address
+    /// 监听地址
     pub host: String,
-    /// Listen port
+    /// 监听端口
     pub port: u16,
-    /// CORS allowed Origin list, default ["http://localhost:22217"]
+    /// CORS 允许的 Origin 列表，默认 ["http://localhost:22217"]
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
 }
@@ -231,10 +231,10 @@ fn default_cors_origins() -> Vec<String> {
     vec!["http://localhost:22217".to_string()]
 }
 
-// ── Config implementation ─────────────────────────────────────────────────────────
+// ── Config 实现 ─────────────────────────────────────────────────────────
 
 impl Config {
-    /// Load configuration from the specified path
+    /// 从指定路径加载配置
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path)?;
         let mut config: Self = toml::de::from_str(&content)?;
@@ -243,7 +243,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Deduplicate by email (priority) or mobile, keeping the first occurrence
+    /// 按 email（优先）或 mobile 去重，保留首次出现的账号
     fn dedup_accounts(&mut self) {
         let mut seen = std::collections::HashSet::new();
         self.ds_core.accounts.retain(|a| {
@@ -256,7 +256,7 @@ impl Config {
         });
     }
 
-    /// Parse command-line arguments and load configuration
+    /// 解析命令行参数并加载配置
     pub fn load_with_args(
         args: impl Iterator<Item = String>,
     ) -> Result<(Self, PathBuf), ConfigError> {
@@ -270,7 +270,7 @@ impl Config {
                 if let Some(path) = iter.next() {
                     config_path = Some(path);
                 } else {
-                    return Err(ConfigError::Cli("-c requires a path argument".to_string()));
+                    return Err(ConfigError::Cli("-c 参数需要指定路径".to_string()));
                 }
             }
         }
@@ -284,7 +284,7 @@ impl Config {
             if explicit_c {
                 return Err(ConfigError::Io(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Specified config file does not exist: {}", path.display()),
+                    format!("指定配置文件不存在: {}", path.display()),
                 )));
             }
             let default = Config {
@@ -308,7 +308,7 @@ impl Config {
                 }
             }
             default.save(&path)?;
-            log::info!(target: "config", "Created default config file: {}", path.display());
+            log::info!(target: "config", "已创建默认配置文件: {}", path.display());
             return Ok((default, path));
         }
 
@@ -316,29 +316,29 @@ impl Config {
         Ok((config, path))
     }
 
-    /// Validate configuration
+    /// 验证配置有效性
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         if self.ds_core.model_types.is_empty() {
-            return Err(ConfigError::Validation("model_types cannot be empty".to_string()));
+            return Err(ConfigError::Validation("model_types 不能为空".to_string()));
         }
         let n = self.ds_core.model_types.len();
         if self.ds_core.max_input_tokens.len() != n {
             return Err(ConfigError::Validation(format!(
-                "max_input_tokens length ({}) must match model_types length ({})",
+                "max_input_tokens 长度({})必须与 model_types 长度({})一致",
                 self.ds_core.max_input_tokens.len(),
                 n
             )));
         }
         if self.ds_core.max_output_tokens.len() != n {
             return Err(ConfigError::Validation(format!(
-                "max_output_tokens length ({}) must match model_types length ({})",
+                "max_output_tokens 长度({})必须与 model_types 长度({})一致",
                 self.ds_core.max_output_tokens.len(),
                 n
             )));
         }
         if self.ds_core.input_character_limits.len() != n {
             return Err(ConfigError::Validation(format!(
-                "input_character_limits length ({}) must match model_types length ({})",
+                "input_character_limits 长度({})必须与 model_types 长度({})一致",
                 self.ds_core.input_character_limits.len(),
                 n
             )));
@@ -352,7 +352,7 @@ impl Config {
                     &k.key
                 };
                 return Err(ConfigError::Validation(format!(
-                    "Duplicate API key: {}...",
+                    "API key 重复: {}...",
                     prefix
                 )));
             }
@@ -360,7 +360,7 @@ impl Config {
         Ok(())
     }
 
-    /// Atomically save configuration to file
+    /// 原子保存配置到文件
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
         let toml_str = toml::to_string_pretty(self).map_err(ConfigError::TomlSerialization)?;
         let tmp = path.as_ref().with_extension("toml.tmp");
@@ -396,17 +396,17 @@ impl Default for DsCoreSection {
     }
 }
 
-/// Configuration loading error type
+/// 配置加载错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("IO error: {0}")]
+    #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
-    #[error("TOML parse error: {0}")]
+    #[error("TOML 解析错误: {0}")]
     Toml(#[from] toml::de::Error),
-    #[error("Config validation error: {0}")]
+    #[error("配置验证错误: {0}")]
     Validation(String),
-    #[error("Command-line argument error: {0}")]
+    #[error("命令行参数错误: {0}")]
     Cli(String),
-    #[error("TOML serialization error: {0}")]
+    #[error("TOML 序列化错误: {0}")]
     TomlSerialization(#[from] toml::ser::Error),
 }
