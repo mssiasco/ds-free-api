@@ -1,13 +1,13 @@
-//! OpenAI 模型列表响应生成
+//! OpenAI model list response generation
 //!
-//! 基于 DeepSeek model_types + model_aliases 静态生成 OpenAI /models 响应。
+//! Statically generates OpenAI /models response from DeepSeek model_types + model_aliases.
 
 use crate::openai_adapter::types::{OpenAIModel, OpenAIModelList};
 
 const MODEL_CREATED: u64 = 1_090_108_800;
 const MODEL_OWNED_BY: &str = "deepseek-web (proxied by https://github.com/NIyueeE)";
 
-/// 根据 model_types + aliases 生成模型列表
+/// Generate model list from model_types + aliases
 pub fn list(
     model_types: &[String],
     max_input_tokens: &[u32],
@@ -39,7 +39,7 @@ pub fn list(
     }
 }
 
-/// 查询单个模型
+/// Query a single model
 pub fn get(
     model_types: &[String],
     max_input_tokens: &[u32],

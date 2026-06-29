@@ -1,10 +1,10 @@
-//! DeepSeek HTTP 客户端 —— 原始 API 调用层
+//! DeepSeek HTTP client — raw API call layer
 //!
-//! 无状态管理：无缓存、无重试、无会话状态。
-//! 每个方法对应一个 REST 端点（详见 docs/ds-api-reference.md）。
-//! 流方法（completion/edit_message）返回原始字节流，由上层解析 SSE。
+//! No state management: no caching, no retries, no session state.
+//! Each method corresponds to a REST endpoint (see docs/ds-api-reference.md).
+//! Streaming methods (completion/edit_message) return raw byte streams, parsed as SSE by upper layers.
 //!
-//! 仅包含最小业务逻辑：HTTP 错误码和业务错误码解析（into_result）。
+//! Contains minimal business logic only: HTTP error code and business error code parsing (into_result).
 
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
@@ -15,7 +15,7 @@ use thiserror::Error;
 use wreq::multipart::{Form, Part};
 use wreq_util::Emulation;
 
-// API 端点常量
+// API endpoint constants
 const ENDPOINT_USERS_LOGIN: &str = "/users/login";
 const ENDPOINT_CHAT_SESSION_CREATE: &str = "/chat_session/create";
 const ENDPOINT_CHAT_SESSION_DELETE: &str = "/chat_session/delete";
@@ -31,23 +31,23 @@ const ENDPOINT_FILE_FETCH: &str = "/file/fetch_files";
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-    /// HTTP 层错误（网络、超时、DNS 等）
+    /// HTTP layer error (network, timeout, DNS, etc.)
     #[error("HTTP error: {0}")]
     Http(#[from] wreq::Error),
 
-    /// HTTP 状态码非 2xx
+    /// HTTP status code is not 2xx
     #[error("HTTP status {status}: {body}")]
     Status { status: u16, body: String },
 
-    /// 业务错误：API 返回 HTTP 200 但 biz_code 非 0
+    /// Business error: API returned HTTP 200 but biz_code is non-zero
     #[error("Business error: code={code}, msg={msg}")]
     Business { code: i64, msg: String },
 
-    /// JSON 解析失败
+    /// JSON parsing failed
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// Header 值包含非法字符
+    /// Header value contains invalid characters
     #[error("Invalid header value: {0}")]
     InvalidHeader(String),
 }
@@ -86,7 +86,7 @@ impl<T: serde::de::DeserializeOwned> Envelope<T> {
         }
         data.biz_data.map_or_else(
             || {
-                // 允许 biz_data 为 null，尝试从 null 构造 T（仅当 T 是 Option 时成功）
+                // Allow biz_data to be null; try to construct T from null (only succeeds when T is Option)
                 serde_json::from_value(serde_json::Value::Null).map_err(|_| ClientError::Business {
                     code: -1,
                     msg: "missing biz_data".into(),
@@ -130,7 +130,7 @@ struct CreateSessionData {
     pub id: String,
 }
 
-// 包装类型：biz_data 里面嵌套了 chat_session 对象
+// Wrapper type: biz_data contains a nested chat_session object
 #[derive(Debug, Deserialize)]
 struct CreateSessionWrapper {
     chat_session: CreateSessionData,
@@ -177,7 +177,7 @@ pub struct ChallengeData {
     pub target_path: String,
 }
 
-// 包装类型：biz_data 里面嵌套了 challenge 对象
+// Wrapper type: biz_data contains a nested challenge object
 #[derive(Debug, Deserialize)]
 struct ChallengeWrapper {
     challenge: ChallengeData,
@@ -266,7 +266,7 @@ impl DsClient {
             builder = builder.proxy(url);
         }
         Self {
-            http: builder.build().expect("构建 HTTP 客户端失败"),
+            http: builder.build().expect("Failed to build HTTP client"),
             api_base,
             wasm_url,
             user_agent,
@@ -286,7 +286,7 @@ impl DsClient {
         h.insert(
             wreq::header::AUTHORIZATION,
             wreq::header::HeaderValue::from_str(&format!("Bearer {token}"))
-                .map_err(|e| ClientError::InvalidHeader(format!("Authorization: {e}")))?,
+                .map_err(|e| ClientError::InvalidHeader(format!("Authorization: ***
         );
         h.insert(
             "X-Client-Version",
@@ -479,7 +479,7 @@ impl DsClient {
         Ok(())
     }
 
-    /// 取消正在进行的流式输出，不需要 PoW
+    /// Cancel an ongoing streaming output, no PoW required
     pub async fn stop_stream(
         &self,
         token: &str,
@@ -496,7 +496,7 @@ impl DsClient {
         Ok(())
     }
 
-    /// 上传文件，返回文件元数据（id, status 等）
+    /// Upload a file, returns file metadata (id, status, etc.)
     pub async fn upload_file(
         &self,
         token: &str,
@@ -520,7 +520,7 @@ impl DsClient {
         Self::parse_envelope::<UploadFileData>(resp).await
     }
 
-    /// 查询文件状态，返回文件列表（含 status: PENDING/SUCCESS/FAILED）
+    /// Query file status, returns file list (with status: PENDING/SUCCESS/FAILED)
     pub async fn fetch_files(
         &self,
         token: &str,

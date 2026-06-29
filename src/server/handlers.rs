@@ -1,6 +1,6 @@
-//! HTTP 路由处理器 —— 薄路由层，委托给 OpenAIAdapter / AnthropicCompat
+//! HTTP route handlers — thin routing layer, delegates to OpenAIAdapter / AnthropicCompat
 //!
-//! 所有业务逻辑在 adapter 中，handler 只做参数提取和响应格式化。
+//! All business logic lives in the adapter; handlers only do parameter extraction and response formatting.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -132,7 +132,7 @@ fn next_request_id() -> String {
 
 const X_DS_ACCOUNT: &str = "x-ds-account";
 
-/// 脱敏账号 ID：邮箱/手机号只保留前 3 字符 + ***
+/// Mask account ID: email/phone only shows first 3 characters + ***
 fn mask_account_id(id: &str) -> String {
     if id.len() <= 3 {
         "***".to_string()
@@ -141,7 +141,7 @@ fn mask_account_id(id: &str) -> String {
     }
 }
 
-/// 应用状态
+/// Application state
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) adapter: Arc<OpenAIAdapter>,
@@ -330,7 +330,7 @@ pub(crate) async fn get_model(
 }
 
 // ============================================================================
-// Anthropic 兼容路由
+// Anthropic compatible routes
 // ============================================================================
 
 /// POST /anthropic/v1/messages

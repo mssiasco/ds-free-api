@@ -1,6 +1,6 @@
-//! DeepSeek 核心模块 —— OpenAI API 到 DeepSeek 的适配层
+//! DeepSeek core module — adapter layer from OpenAI API to DeepSeek
 //!
-//! 对外暴露最小接口：DsCore, CoreError, ChatRequest, DsCoreConfig, AccountConfig
+//! Exposes minimal public interface: DsCore, CoreError, ChatRequest, DsCoreConfig, AccountConfig
 
 mod accounts;
 mod chat;
@@ -15,22 +15,22 @@ use accounts::Accounts;
 use chat::Chat;
 use std::sync::Arc;
 
-/// 内核层错误类型
+/// Core layer error type
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-    /// 服务过载：所有账号都在忙或不健康
+    /// Service overloaded: all accounts are busy or unhealthy
     #[error("no available account")]
     Overloaded,
 
-    /// PoW 计算失败
+    /// PoW computation failed
     #[error("proof of work failed: {0}")]
     ProofOfWorkFailed(#[from] accounts::PowError),
 
-    /// 提供商错误：网络、业务错误、Token 失效等
+    /// Provider error: network, business error, token expired, etc.
     #[error("provider: {0}")]
     ProviderError(String),
 
-    /// 流处理错误：连接中断等
+    /// Stream processing error: connection interrupted, etc.
     #[error("stream error: {0}")]
     Stream(String),
 }
@@ -57,9 +57,9 @@ impl DsCore {
         Ok(Self { accounts, chat })
     }
 
-    /// 发起对话请求，返回 SSE 字节流 + 账号标识
+    /// Initiate a chat request, returns SSE byte stream + account identifier
     ///
-    /// 流结束或丢弃时自动释放账号
+    /// Automatically releases the account when the stream ends or is dropped
     pub async fn v0_chat(
         &self,
         req: ChatRequest,
@@ -73,27 +73,27 @@ impl DsCore {
         self.accounts.account_statuses()
     }
 
-    /// 动态添加账号
+    /// Dynamically add an account
     pub async fn add_account(&self, creds: &AccountConfig) -> Result<String, PoolError> {
         self.accounts.add_account(creds).await
     }
 
-    /// 动态移除账号
+    /// Dynamically remove an account
     pub async fn remove_account(&self, email_or_mobile: &str) -> Result<String, PoolError> {
         self.accounts.remove_account(email_or_mobile).await
     }
 
-    /// 标记账号为 Error 状态
+    /// Mark account as Error state
     pub fn mark_error(&self, email_or_mobile: &str) {
         self.accounts.mark_error(email_or_mobile);
     }
 
-    /// 手动重新登录指定账号
+    /// Manually re-login a specific account
     pub async fn re_login_single(&self, email_or_mobile: &str) -> Result<(), String> {
         self.accounts.re_login_single(email_or_mobile).await
     }
 
-    /// 优雅关闭：清理所有账号的 session
+    /// Graceful shutdown: clean up all account sessions
     pub async fn shutdown(&self) {
         self.chat.shutdown().await;
         self.accounts.shutdown().await;

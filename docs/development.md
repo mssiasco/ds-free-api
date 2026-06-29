@@ -1,50 +1,50 @@
-# 开发指南
+# Development Guide
 
-## 环境要求
+## Environment Requirements
 
-- Rust **1.95.0+**（见 `rust-toolchain.toml`）
-- Bun **1.3+**（Web 面板构建与开发）
-- `cmake`、`g++`、`libclang-dev`（编译 `wreq` 依赖的 BoringSSL）
-- `just` 命令运行器（用于 `just serve` / `just check` 等快捷命令）
+- Rust **1.95.0+** (see `rust-toolchain.toml`)
+- Bun **1.3+** (Web panel build and development)
+- `cmake`, `g++`, `libclang-dev` (required to compile `wreq`'s BoringSSL dependency)
+- `just` command runner (for `just serve` / `just check` etc. shortcut commands)
 
-## 首次启动
+## First-time Setup
 
 ```bash
-# 1. 复制配置
+# 1. Copy config
 cp config.example.toml config.toml
 
-# 2. 构建 Web 前端（编译时嵌入二进制，每次前端变更需要重构建）
+# 2. Build Web frontend (compiled into binary at build time, rebuild required for each frontend change)
 cd web && bun install && bun run build && cd ..
 
-# 3. 运行开发服务器
+# 3. Run development server
 just serve
 ```
 
-服务器启动后访问 `http://localhost:22217` 自动跳转到管理面板。
+After the server starts, visit `http://localhost:22217` which auto-redirects to the admin panel.
 
-> **前端热更新开发**：同时运行 `cd web && bun run dev`（Vite HMR 模式）
-> 和 `just serve`，后端优先使用文件系统 `web/dist/` 目录中的静态文件。
-> 无需每次前端改动都重构建二进制。
+> **Frontend hot-reload development**: Run `cd web && bun run dev` (Vite HMR mode)
+> alongside `just serve`; the backend prioritizes static files from the `web/dist/` filesystem directory.
+> No need to rebuild the binary for every frontend change.
 
-## Release 构建
+## Release Build
 
 ```bash
-# 1. 构建 Web 前端
+# 1. Build Web frontend
 cd web && bun install && bun run build && cd ..
 
-# 2. 构建 Release 二进制
+# 2. Build Release binary
 cargo build --release
 
-# 3. 运行（也可直接运行二进制，无需 web/dist/ 目录）
+# 3. Run (can also run the binary directly, no web/dist/ directory needed)
 ./target/release/ds-free-api
 ```
 
-Release 二进制通过 `rust_embed` 编译时嵌入前端资源，`web/dist/` 目录不存在时
-自动使用嵌入资源。发布版无需额外文件。
+Release binary embeds frontend assets at compile time via `rust_embed`. When `web/dist/` directory
+doesn't exist, it automatically uses embedded assets. No extra files needed for distribution.
 
-## CI 自动构建
+## CI Automated Build
 
-GitHub Actions（`.github/workflows/release.yml`）在 tag push 时自动执行：
+GitHub Actions (`.github/workflows/release.yml`) runs automatically on tag push:
 
 ```
 build-frontend (bun install --frozen-lockfile + bun run build)
@@ -55,110 +55,110 @@ build-frontend (bun install --frozen-lockfile + bun run build)
   └── docker (ghcr.io image)
 ```
 
-`build-frontend` 产出 `web-dist` artifact，各编译 job 下载后再执行 `cargo build` /
-`cross build`，保证 `rust_embed` 嵌入真实前端文件。
+`build-frontend` produces a `web-dist` artifact. Each build job downloads it before running `cargo build` /
+`cross build`, ensuring `rust_embed` embeds actual frontend files.
 
-Docker 镜像自动推送到 `ghcr.io/niyueee/ds-free-api:latest`。
+Docker image auto-pushed to `ghcr.io/niyueee/ds-free-api:latest`.
 
-## Docker 部署（生产）
+## Docker Deployment (Production)
 
-从 ghcr.io 拉取（推荐）：
+Pull from ghcr.io (recommended):
 
 ```bash
-# 确认已创建 docker/config/ 目录（自动创建或手动 mkdir）
+# Ensure docker/config/ directory exists (auto-created or manual mkdir)
 docker compose -f docker/docker-compose.yaml up -d
 ```
 
-容器首次启动时自动创建最小配置，无需提前准备 `config.toml`。
-配置和数据通过 bind mount 持久化到宿主机的 `docker/config/` 和 `docker/data/`。
+Container auto-creates minimal config on first startup, no need to prepare `config.toml` in advance.
+Config and data are persisted to host via bind mount at `docker/config/` and `docker/data/`.
 
-从源码构建本地 Docker 镜像：
+Build local Docker image from source:
 
 ```bash
-# 1. 构建前端 + 交叉编译二进制
+# 1. Build frontend + cross-compile binary
 cd web && bun install && bun run build && cd ..
 cargo zigbuild --release --target x86_64-unknown-linux-gnu
 
-# 2. 构建 Docker 镜像
+# 2. Build Docker image
 docker build -f docker/Dockerfile -t ds-free-api .
 
-# 3. 导出并传输到服务器
+# 3. Export and transfer to server
 docker save ds-free-api | gzip > ds-free-api.tar.gz
 scp ds-free-api.tar.gz user@server:/tmp/
 
-# 4. 服务器加载并启动
+# 4. Load and start on server
 ssh user@server
 docker load < /tmp/ds-free-api.tar.gz
 docker compose -f docker/docker-compose.yaml up -d
 ```
 
-> 服务器原生 x86 环境可直接在服务器上执行上述构建，速度更快。
-> Docker 镜像仅包含预编译二进制 + 嵌入的前端资源，无需在容器内编译。
+> For servers with native x86 environment, you can run the build directly on the server for faster speed.
+> Docker image only contains pre-compiled binary + embedded frontend assets, no compilation needed inside the container.
 
-## 命令参考
+## Command Reference
 
 ```bash
-# 一键检查（check + clippy + fmt + audit + unused deps）
+# One-pass check (check + clippy + fmt + audit + unused deps)
 just check
 
-# 运行测试
+# Run tests
 cargo test --lib
 
-# 运行 HTTP 服务
+# Run HTTP server
 just serve
 
-# 统一协议调试 CLI（内置对话/比较/并发等模式）
+# Unified protocol debug CLI (built-in chat/compare/concurrent modes)
 just adapter-cli
 
-# 使用 e2e 专属配置启动服务
+# Start server with e2e config
 just e2e-serve
 ```
 
-## e2e 测试
+## e2e Tests
 
-`py-e2e-tests/` 是基于 JSON 场景驱动的端到端测试框架，无需 pytest 依赖。分为三层：
+`py-e2e-tests/` is a JSON scenario-driven end-to-end test framework with no pytest dependency. Three tiers:
 
-| 层级       | 命令              | 覆盖范围                                              |
-| ---------- | ----------------- | ----------------------------------------------------- |
-| **Basic**  | `just e2e-basic`  | 基础功能场景（双端点 OpenAI + Anthropic），安全并发数 |
-| **Repair** | `just e2e-repair` | 工具调用异常格式修复专项（OpenAI 单端点），安全并发数 |
-| **Stress** | `just e2e-stress` | 全部场景 × 3 次迭代，安全并发数 + 1 并发              |
+| Tier       | Command             | Coverage                                                    |
+| ---------- | ------------------- | ----------------------------------------------------------- |
+| **Basic**  | `just e2e-basic`    | Basic functionality scenarios (dual-endpoint OpenAI + Anthropic), safe concurrency |
+| **Repair** | `just e2e-repair`   | Tool call abnormal format repair tests (OpenAI single endpoint), safe concurrency |
+| **Stress** | `just e2e-stress`   | All scenarios × 3 iterations, safe concurrency + 1 concurrency |
 
-先启动服务端：
+Start the server first:
 
 ```bash
 just e2e-serve
 ```
 
-再在另一个终端运行 e2e 测试：
+Then run e2e tests in another terminal:
 
 ```bash
-# 基础场景测试
+# Basic scenario tests
 just e2e-basic
 
-# 工具修复测试
+# Tool repair tests
 just e2e-repair
 ```
 
-场景文件在 `scenarios/` 中按类型独立存放：
+Scenario files are stored in `scenarios/` organized by type:
 
 ```
 py-e2e-tests/
 ├── scenarios/
 │   ├── basic/
-│   │   ├── openai/         # 7 个基础场景（对话、推理、流式、工具调用、文件上传、图片上传、HTTP链接）
-│   │   └── anthropic/      # 7 个基础场景（对话、推理、流式、工具调用、文档上传、图片上传、HTTP链接）
-│   └── repair/             # 10 个工具损坏格式场景
-├── runner.py               # 单次运行入口
-├── stress_runner.py        # 多迭代压测入口
-└── config.toml             # e2e 专用服务端配置
+│   │   ├── openai/         # 7 basic scenarios (chat, reasoning, streaming, tool calls, file upload, image upload, HTTP link)
+│   │   └── anthropic/      # 7 basic scenarios (chat, reasoning, streaming, tool calls, document upload, image upload, HTTP link)
+│   └── repair/             # 10 tool corruption format scenarios
+├── runner.py               # Single run entry point
+├── stress_runner.py        # Multi-iteration stress test entry point
+└── config.toml             # e2e dedicated server config
 ```
 
-每个场景为独立 JSON 文件，包含请求参数和校验规则：
+Each scenario is an independent JSON file containing request parameters and validation rules:
 
 ```json
 {
-  "name": "场景名称",
+  "name": "scenario name",
   "endpoint": "openai|anthropic",
   "category": "basic|repair",
   "models": ["deepseek-default", "deepseek-expert", "deepseek-vision"],
@@ -175,52 +175,52 @@ py-e2e-tests/
 }
 ```
 
-### e2e CLI 参数
+### e2e CLI Parameters
 
-**`just e2e-basic` 和 `just e2e-repair`（单次运行）：**
+**`just e2e-basic` and `just e2e-repair` (single run):**
 
-| 参数 | 作用 |
-|------|------|
-| `scenario_dir` | 场景目录，如 `scenarios/basic` 或 `scenarios/repair` |
-| `--endpoint` | 端点过滤：`openai` / `anthropic` |
-| `--model` | 模型过滤：`deepseek-default` / `deepseek-expert` |
-| `--filter` | 场景名称关键字过滤（多个用空格分隔，如 `--filter 文件 图片`）|
-| `--parallel` | 并行数，默认 `账号数 ÷ 2` |
-| `--show-output` | 显示模型回复摘要、工具调用、结束原因 |
-| `--report` | 输出 JSON 报告路径 |
+| Parameter | Description |
+|-----------|-------------|
+| `scenario_dir` | Scenario directory, e.g. `scenarios/basic` or `scenarios/repair` |
+| `--endpoint` | Endpoint filter: `openai` / `anthropic` |
+| `--model` | Model filter: `deepseek-default` / `deepseek-expert` |
+| `--filter` | Scenario name keyword filter (space-separated for multiple, e.g. `--filter file image`) |
+| `--parallel` | Parallelism, default `account count ÷ 2` |
+| `--show-output` | Show model reply summary, tool calls, finish reason |
+| `--report` | Output JSON report path |
 
-**`just e2e-stress`（压测）：**
+**`just e2e-stress` (stress test):**
 
-| 参数 | 作用 |
-|------|------|
-| `--iterations` | 每场景迭代次数，默认 3 |
-| `--models` | 模型列表过滤 |
-| `--filter` | 场景名称关键字过滤（多个用空格分隔）|
-| `--parallel` | 并行数，默认 `账号数 ÷ 2 + 1` |
-| `--show-output` | 显示模型输出 |
-| `--report` | 输出 JSON 报告路径 |
+| Parameter | Description |
+|-----------|-------------|
+| `--iterations` | Iterations per scenario, default 3 |
+| `--models` | Model list filter |
+| `--filter` | Scenario name keyword filter (space-separated for multiple) |
+| `--parallel` | Parallelism, default `account count ÷ 2 + 1` |
+| `--show-output` | Show model output |
+| `--report` | Output JSON report path |
 
-使用示例：
+Usage examples:
 
 ```bash
-# 快速验证新加的文件上传场景
-just e2e-basic --filter 文件 图片 --show-output
+# Quick validation of newly added file upload scenarios
+just e2e-basic --filter file image --show-output
 
-# 仅查看 OpenAI 端点的 expert 模型
+# Only view expert model on OpenAI endpoint
 just e2e-basic --endpoint openai --model deepseek-expert
 
-# 串行调试
+# Serial debugging
 just e2e-basic --endpoint openai --parallel 1 --show-output
 
-# 压测：工具调用修复场景 × 5 次迭代
-just e2e-stress --filter 修复 --iterations 5
+# Stress test: tool call repair scenarios × 5 iterations
+just e2e-stress --filter repair --iterations 5
 
-# 输出 JSON 报告
+# Output JSON report
 just e2e-basic --report result.json
 ```
 
-## 更多文档
+## More Documentation
 
-- [代码规范](code-style.md)
-- [日志规范](logging-spec.md)
-- [Prompt 注入策略](deepseek-prompt-injection.md)
+- [Code Style Guide](code-style.md)
+- [Logging Specification](logging-spec.md)
+- [Prompt Injection Strategy](deepseek-prompt-injection.md)

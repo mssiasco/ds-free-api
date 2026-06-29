@@ -1,8 +1,8 @@
-//! 对话分流模块 —— prompt 超限判断与三种请求路径
+//! Chat dispatch module — prompt oversize detection and three request paths
 //!
-//! - 正常路径（v0_chat_once）：完整 prompt 直发
+//! - 正常路径（v0_chat_once）：full prompt sent directly
 //! - 历史拆分路径（v0_chat_oversized_file）：超限 default 模型，拆历史为文件上传
-//! - 分块路径（v0_chat_oversized_chunk）：超限 expert 模型，分块 completion 写入
+//! - chunk路径（v0_chat_oversized_chunk）：超限 expert 模型，chunk completion 写入
 
 use std::pin::Pin;
 
@@ -63,11 +63,11 @@ impl Chat {
         let threshold = (limit as u64 * 75 / 100) as usize;
         let oversized = req.prompt.chars().count() > threshold;
 
-        // 超限时按模型类型选择回退方案
+        // When oversized, select fallback by model type
         if oversized {
             log::debug!(
                 target: "ds_core::accounts",
-                "req={} prompt 超限 ({} chars > {} threshold), model_type={}, 触发回退方案",
+                "req={} prompt oversized ({} chars > {} threshold), model_type={}, triggering fallback",
                 request_id,
                 req.prompt.chars().count(),
                 threshold,
@@ -97,7 +97,7 @@ impl Chat {
                 Err(e) => {
                     log::warn!(
                         target: "ds_core::accounts",
-                        "req={} 请求失败 (attempt {}/{}): {}",
+                        "req={} request failed (attempt {}/{}): {}",
                         request_id, attempt + 1, MAX_ATTEMPTS, e
                     );
                     if attempt + 1 >= MAX_ATTEMPTS {
@@ -123,7 +123,7 @@ impl Chat {
         if !history_content.is_empty() {
             log::debug!(
                 target: "ds_core::accounts",
-                "req={} 触发历史拆分, history_size={}", request_id, history_content.len()
+                "req={} triggering history split, history_size={}", request_id, history_content.len()
             );
         }
 
@@ -143,7 +143,7 @@ impl Chat {
                 Err(e) => {
                     log::warn!(
                         target: "ds_core::accounts",
-                        "req={} 请求失败 (attempt {}/{}): {}",
+                        "req={} request failed (attempt {}/{}): {}",
                         request_id, attempt + 1, MAX_ATTEMPTS, e
                     );
                     if attempt + 1 >= MAX_ATTEMPTS {
@@ -156,13 +156,13 @@ impl Chat {
         Err(CoreError::Overloaded)
     }
 
-    /// 回退方案 B：分块 completion 写入 session（expert，绕过文件上传限制）
+    /// 回退方案 B：chunk completion 写入 session（expert，绕过文件上传限制）
     async fn v0_chat_oversized_chunk(
         &self,
         req: &ChatRequest,
         request_id: &str,
     ) -> Result<ChatResponse, CoreError> {
-        // 1. 获取账号
+        // 1. 1. Get account
         let guard = self
             .accounts
             .get_account_with_wait(30_000)
@@ -170,7 +170,7 @@ impl Chat {
             .ok_or_else(|| {
                 log::warn!(
                     target: "ds_core::accounts",
-                    "req={} 账号池无可用账号", request_id
+                    "req={} no available accounts in pool", request_id
                 );
                 CoreError::Overloaded
             })?;
@@ -180,10 +180,10 @@ impl Chat {
 
         log::debug!(
             target: "ds_core::accounts",
-            "req={} 分块写入: model_type=expert, account={}", request_id, account_id
+            "req={} chunked write: model_type=expert, account={}", request_id, account_id
         );
 
-        // 2. 创建 session（所有 chunk 共享）
+        // 2. session created（所有 chunk 共享）
         let session_id = match self.accounts.create_session(&token).await {
             Ok(id) => id,
             Err(e) => {
@@ -192,12 +192,12 @@ impl Chat {
             }
         };
 
-        // 3. 按 75% limit 切分 prompt
+        // 3. 3. Split prompt at 75% limit
         let limit = self.input_character_limit_for(&req.model_type);
         let chunk_size = (limit as u64 * 75 / 100) as usize;
         let chunks = split_prompt_chunks(&req.prompt, chunk_size);
 
-        // 4. Feed 非末 chunk 到 session
+        // 4. 4. Feed non-final chunks to session
         let mut parent_message_id: Option<i64> = None;
         for (i, chunk) in chunks[..chunks.len() - 1].iter().enumerate() {
             let pow_header = match self
@@ -243,14 +243,14 @@ impl Chat {
 
             parent_message_id = Some(stop_id);
 
-            // 发送停止信号（fire-and-forget）
+            // Send stop signal（fire-and-forget）
             let stop_payload = crate::accounts::StopStreamPayload {
                 chat_session_id: session_id.clone(),
                 message_id: stop_id,
             };
             let _ = self.accounts.stop_stream(&token, &stop_payload).await;
 
-            // 消费流直到 close 事件
+            // Consume stream until close event
             wait_close(
                 &mut stream,
                 &mut close_buf,
@@ -262,7 +262,7 @@ impl Chat {
 
             log::debug!(
                 target: "ds_core::accounts",
-                "req={} 分块 {}/{} parent={:?}", request_id, i + 1, chunks.len() - 1, parent_message_id
+                "req={} chunk {}/{} parent={:?}", request_id, i + 1, chunks.len() - 1, parent_message_id
             );
         }
 
@@ -329,7 +329,7 @@ impl Chat {
                             .unwrap_or_default();
                         log::error!(
                             target: "ds_core::accounts",
-                            "req={} SSE 流返回业务错误: biz_code={}, biz_msg={}",
+                            "req={} SSE stream returned business error: biz_code={}, biz_msg={}",
                             request_id, biz_code, biz_msg
                         );
                         self.accounts.mark_error(&account_id);
@@ -344,9 +344,9 @@ impl Chat {
                     }
                     log::error!(
                         target: "ds_core::accounts",
-                        "req={} 空 SSE 流, 已收到 {} 字节: {}", request_id, buf.len(), raw
+                        "req={} empty SSE stream, received {} bytes: {}", request_id, buf.len(), raw
                     );
-                    CoreError::Stream(format!("空 SSE 流 (已收到 {} 字节)", buf.len()))
+                    CoreError::Stream(format!("empty SSE stream (received {} bytes)", buf.len()))
                 })?
                 .map_err(|e| CoreError::Stream(e.to_string()))?;
             log::trace!(
@@ -363,12 +363,12 @@ impl Chat {
 
         let (_, stop_id) = parse_ready_message_ids(ready_block.as_bytes());
 
-        // 检查 hint 事件
+        // Check hint event
         if let Some(err) = check_hint(&second_block) {
             if let CoreError::Overloaded = &err {
                 log::warn!(
                     target: "ds_core::accounts",
-                    "req={} hint 限流: rate_limit_reached", request_id
+                    "req={} hint rate limit: rate_limit_reached", request_id
                 );
                 self.accounts.mark_error(&account_id);
             } else {
@@ -384,13 +384,13 @@ impl Chat {
                     .unwrap_or_else(|| "(unknown)".into());
                 log::warn!(
                     target: "ds_core::accounts",
-                    "req={} hint 错误: {}", request_id, hint_detail
+                    "req={} hint error: {}", request_id, hint_detail
                 );
             }
             let _ = self.accounts.delete_session(&token, &session_id).await;
             log::debug!(
                 target: "ds_core::accounts",
-                "req={} hint 后清理 session: id={}", request_id, session_id
+                "req={} cleaning up session after hint: id={}", request_id, session_id
             );
             return Err(err);
         }
@@ -400,7 +400,7 @@ impl Chat {
             "req={} SSE ready: resp_msg={}", request_id, stop_id
         );
 
-        // 注册活跃 session
+        // Register active session
         {
             let mut map = self.active_sessions.lock().unwrap();
             map.insert(
@@ -413,7 +413,7 @@ impl Chat {
             );
         }
 
-        // 用原始 buf 重建流
+        // Rebuild stream from original buffer
         let stream =
             futures::stream::once(futures::future::ready(Ok(Bytes::from(buf)))).chain(raw_stream);
 
@@ -442,7 +442,7 @@ impl Chat {
         request_id: &str,
         first_try: bool,
     ) -> Result<ChatResponse, CoreError> {
-        // 1. 获取空闲账号
+        // 1. 1. Get idle account
         let guard = if first_try {
             self.accounts.get_account_with_wait(30_000).await
         } else {
@@ -451,7 +451,7 @@ impl Chat {
         .ok_or_else(|| {
             log::warn!(
                 target: "ds_core::accounts",
-                "req={} 账号池无可用账号", request_id
+                "req={} no available accounts in pool", request_id
             );
             CoreError::Overloaded
         })?;
@@ -462,11 +462,11 @@ impl Chat {
 
         log::debug!(
             target: "ds_core::accounts",
-            "req={} 分配账号: model_type={}, account={}",
+            "req={} account assigned: model_type={}, account={}",
             request_id, req.model_type, account_id
         );
 
-        // 2. 创建临时 session
+        // 2. 2. Create temporary session
         let session_id = match self.accounts.create_session(&token).await {
             Ok(id) => id,
             Err(e) => {
@@ -476,7 +476,7 @@ impl Chat {
         };
         log::debug!(
             target: "ds_core::accounts",
-            "req={} 创建 session: id={}", request_id, session_id
+            "req={} session created: id={}", request_id, session_id
         );
 
         // 3. 上传文件：先历史文件，再外部文件
@@ -522,17 +522,17 @@ impl Chat {
                 Err(e) => {
                     log::warn!(
                         target: "ds_core::accounts",
-                        "req={} 外部文件上传失败 ({}): {}", request_id, file.filename, e
+                        "req={} external file upload failed ({}): {}", request_id, file.filename, e
                     );
                     return Err(CoreError::ProviderError(format!(
-                        "外部文件上传失败 ({}): {}",
+                        "external file upload failed ({}): {}",
                         file.filename, e
                     )));
                 }
             }
         }
 
-        // 4. 计算 PoW
+        // 4. 4. Compute PoW
         let pow_header = match self
             .accounts
             .compute_pow_for_target(&token, "/api/v0/chat/completion")
@@ -545,7 +545,7 @@ impl Chat {
             }
         };
 
-        // 5. 发起 completion
+        // 5. 5. Initiate completion
         let completion_prompt: &str = if history_upload_failed {
             &req.prompt
         } else {
@@ -599,7 +599,7 @@ impl Chat {
                             .unwrap_or_default();
                         log::error!(
                             target: "ds_core::accounts",
-                            "req={} SSE 流返回业务错误: biz_code={}, biz_msg={}",
+                            "req={} SSE stream returned business error: biz_code={}, biz_msg={}",
                             request_id, biz_code, biz_msg
                         );
                         self.accounts.mark_error(&account_id);
@@ -610,9 +610,9 @@ impl Chat {
                     }
                     log::error!(
                         target: "ds_core::accounts",
-                        "req={} 空 SSE 流, 已收到 {} 字节: {}", request_id, buf.len(), raw
+                        "req={} empty SSE stream, received {} bytes: {}", request_id, buf.len(), raw
                     );
-                    CoreError::Stream(format!("空 SSE 流 (已收到 {} 字节)", buf.len()))
+                    CoreError::Stream(format!("empty SSE stream (received {} bytes)", buf.len()))
                 })?
                 .map_err(|e| CoreError::Stream(e.to_string()))?;
             buf.extend_from_slice(&chunk);
@@ -625,12 +625,12 @@ impl Chat {
 
         let (_, stop_id) = parse_ready_message_ids(ready_block.as_bytes());
 
-        // 7. 检查 hint 事件
+        // 7. Check hint event
         if let Some(err) = check_hint(&second_block) {
             if let CoreError::Overloaded = &err {
                 log::warn!(
                     target: "ds_core::accounts",
-                    "req={} hint 限流: rate_limit_reached", request_id
+                    "req={} hint rate limit: rate_limit_reached", request_id
                 );
                 self.accounts.mark_error(&account_id);
             } else {
@@ -646,13 +646,13 @@ impl Chat {
                     .unwrap_or_else(|| "(unknown)".into());
                 log::warn!(
                     target: "ds_core::accounts",
-                    "req={} hint 错误: {}", request_id, hint_detail
+                    "req={} hint error: {}", request_id, hint_detail
                 );
             }
             let _ = self.accounts.delete_session(&token, &session_id).await;
             log::debug!(
                 target: "ds_core::accounts",
-                "req={} hint 后清理 session: id={}", request_id, session_id
+                "req={} cleaning up session after hint: id={}", request_id, session_id
             );
             return Err(err);
         }
@@ -662,7 +662,7 @@ impl Chat {
             "req={} SSE ready: resp_msg={}", request_id, stop_id
         );
 
-        // 8. 注册活跃 session
+        // 8. Register active session
         {
             let mut map = self.active_sessions.lock().unwrap();
             map.insert(
@@ -675,7 +675,7 @@ impl Chat {
             );
         }
 
-        // 9. 用原始 buf 重建流
+        // 9. Rebuild stream from original buffer
         let stream =
             futures::stream::once(futures::future::ready(Ok(Bytes::from(buf)))).chain(raw_stream);
 
@@ -696,7 +696,7 @@ impl Chat {
     }
 }
 
-// ── ChatML 解析与历史拆分 ──────────────────────────────────────────────
+// ── ChatML parsing and history splitting ──────────────────────────────────────────────
 
 /// 按字符数切分 prompt 为 chunk（不感知标签边界）
 fn split_prompt_chunks(prompt: &str, chunk_size: usize) -> Vec<String> {
@@ -721,7 +721,7 @@ fn role_tag(role: &str) -> String {
     format!("<｜{}｜>", r)
 }
 
-/// 解析 DeepSeek 原生标签格式的 prompt 为结构化块
+/// Parse DeepSeek native tag format prompt into structured blocks
 fn parse_native_blocks(prompt: &str) -> Vec<ChatBlock> {
     let mut blocks = Vec::new();
     let mut pos = 0;
@@ -746,10 +746,10 @@ fn parse_native_blocks(prompt: &str) -> Vec<ChatBlock> {
     blocks
 }
 
-/// 拆分 prompt 为 inline_prompt 和 history_content
+/// Split prompt into inline_prompt and history_content
 ///
 /// 优先策略：找到最后一个 `<｜Assistant｜>` 块，
-/// - inline = 仅该 assistant 块
+/// - - inline = only that assistant block
 /// - history = 其余所有块，包装为 [file content end] … [file content begin] 格式上传
 fn split_history_prompt(prompt: &str) -> (String, String) {
     let blocks = parse_native_blocks(prompt);

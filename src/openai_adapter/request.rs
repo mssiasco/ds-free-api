@@ -1,8 +1,8 @@
-//! OpenAI 请求解析 —— 将 OpenAI ChatCompletion 请求降级为 ds_core::ChatRequest
+//! OpenAI request parsing — downgrade OpenAI ChatCompletion request to ds_core::ChatRequest
 //!
 //! 当前限制：
-//! - 多轮对话通过 DeepSeek 原生标签格式压缩为单个 prompt 字符串
-//! - tool 定义嵌入到最后一个 `<｜Assistant｜>` 后的不闭合 `<think>` 块中
+//! - - Multi-turn conversations compressed into a single prompt string via DeepSeek native tag format
+//! - Tool definitions embedded after the last `<｜Assistant｜>`  in an unclosed `<think>`  block
 
 pub(crate) mod files;
 pub(crate) mod normalize;
@@ -102,8 +102,8 @@ mod tests {
         let body = serde_json::json!({
             "model": "deepseek-default",
             "messages": [
-                { "role": "system", "content": "你是一个有帮助的助手。" },
-                { "role": "user", "content": "你好" }
+                { "role": "system", "content": "You are a helpful assistant." },
+                { "role": "user", "content": "Hello" }
             ]
         });
         let req = parse_json(body).unwrap();
@@ -115,7 +115,7 @@ mod tests {
         let body = serde_json::json!({
             "model": "deepseek-default",
             "messages": [
-                { "role": "user", "content": "北京天气怎么样？" },
+                { "role": "user", "content": "Beijing天气怎么样？" },
                 {
                     "role": "assistant",
                     "content": null,
@@ -123,16 +123,16 @@ mod tests {
                         {
                             "id": "call_abc123",
                             "type": "function",
-                            "function": { "name": "get_weather", "arguments": "{\"city\":\"北京\"}" }
+                            "function": { "name": "get_weather", "arguments": "{\"city\":\"Beijing\"}" }
                         }
                     ]
                 },
                 {
                     "role": "tool",
                     "tool_call_id": "call_abc123",
-                    "content": "北京今天晴，25°C。"
+                    "content": "Beijing今天晴，25°C。"
                 },
-                { "role": "user", "content": "谢谢" }
+                { "role": "user", "content": "Thanks" }
             ]
         });
         let req = parse_json(body).unwrap();
@@ -144,7 +144,7 @@ mod tests {
         let body = serde_json::json!({
             "model": "deepseek-expert",
             "messages": [
-                { "role": "user", "content": "分析一下量子计算" }
+                { "role": "user", "content": "Analyze quantum computing" }
             ],
             "reasoning_effort": "high",
             "web_search_options": { "search_context_size": "high" }
@@ -154,11 +154,11 @@ mod tests {
         assert!(req.search_enabled);
     }
 
-    // normalize 错误场景
+    // normalize error scenarios
     #[test]
     fn missing_model() {
         let body = serde_json::json!({
-            "messages": [{ "role": "user", "content": "你好" }]
+            "messages": [{ "role": "user", "content": "Hello" }]
         });
         let err = parse_json(body).unwrap_err();
         assert!(matches!(err, OpenAIAdapterError::BadRequest(_)));
@@ -203,7 +203,7 @@ mod tests {
         assert!(err.to_string().contains("name"));
     }
 
-    // model 解析错误与能力标志
+    // model resolution errors and capability flags
     #[test]
     fn unsupported_model() {
         let body = serde_json::json!({
@@ -212,7 +212,7 @@ mod tests {
         });
         let err = parse_json(body).unwrap_err();
         assert!(matches!(err, OpenAIAdapterError::BadRequest(_)));
-        assert!(err.to_string().contains("不支持"));
+        assert!(err.to_string().contains("unsupported"));
     }
 
     #[test]
@@ -239,7 +239,7 @@ mod tests {
             );
         }
 
-        // 未提供 reasoning_effort 时默认开启 reasoning
+        // reasoning defaults to enabled when reasoning_effort not provided
         let body = serde_json::json!({
             "model": "deepseek-default",
             "messages": [{ "role": "user", "content": "hi" }]
@@ -261,7 +261,7 @@ mod tests {
         assert!(req.search_enabled);
     }
 
-    // stop 序列与 stream_options 默认值
+    // stop sequence and stream_options defaults
 
     #[test]
     fn stop_single() {
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(req2.include_obfuscation, false);
     }
 
-    // tools 校验与注入
+    // tools validation and injection
 
     #[test]
     fn tool_choice_none_ignores_tools() {
@@ -324,7 +324,7 @@ mod tests {
             "tool_choice": "none"
         });
         let req = parse_json(body).unwrap();
-        assert!(!req.prompt.contains("你可以使用以下工具"));
+        assert!(!req.prompt.contains("You can use the following tools"));
     }
 
     #[test]
@@ -355,7 +355,7 @@ mod tests {
             "parallel_tool_calls": false
         });
         let req = parse_json(body).unwrap();
-        assert!(req.prompt.contains("注意：一次只能调用一个工具"));
+        assert!(req.prompt.contains("注意：一次只能call one tool"));
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
         let req = parse_json(body).unwrap();
         assert!(
             req.prompt
-                .contains("你只能从以下允许的工具中选择：get_weather")
+                .contains("You can only choose from the following allowed tools：get_weather")
         );
         assert!(req.prompt.contains("注意：你必须调用一个或多个工具"));
     }
@@ -414,7 +414,7 @@ mod tests {
         });
         let req = parse_json(body).unwrap();
         assert!(req.prompt.contains("**my_custom** (custom):"));
-        assert!(req.prompt.contains("你必须调用 'my_custom' 自定义工具"));
+        assert!(req.prompt.contains("You must call the 'my_custom' custom tool"));
     }
 
     #[test]
@@ -456,8 +456,8 @@ mod tests {
             ]
         });
         let req = parse_json(body).unwrap();
-        assert!(req.prompt.contains("调用方法:"));
-        assert!(req.prompt.contains("无约束"));
+        assert!(req.prompt.contains("Invocation method:"));
+        assert!(req.prompt.contains("No constraints"));
     }
 
     #[test]
@@ -502,16 +502,16 @@ mod tests {
         assert!(matches!(err, OpenAIAdapterError::BadRequest(_)));
     }
 
-    // tools injection 位置：嵌入到最后一个 <｜Assistant｜> 后的 <think> 块中
+    // tools injection 位置：嵌入到最后一个 <｜Assistant｜> 后的 <think>  block
 
     #[test]
     fn tools_injected_into_think_block() {
         let body = serde_json::json!({
             "model": "deepseek-default",
             "messages": [
-                { "role": "user", "content": "第一个问题" },
-                { "role": "assistant", "content": "回答" },
-                { "role": "user", "content": "第二个问题" }
+                { "role": "user", "content": "First question" },
+                { "role": "assistant", "content": "Answer" },
+                { "role": "user", "content": "Second question" }
             ],
             "tools": [
                 { "type": "function", "function": { "name": "calc" } }
@@ -519,33 +519,33 @@ mod tests {
         });
         let req = parse_json(body).unwrap();
         let prompt = &req.prompt;
-        // 工具定义应注入到最后一个 <｜Assistant｜><think> 块中
+        // Tool definition应注入到最后一个 <｜Assistant｜><think>  block
         assert!(
             prompt.contains("<｜Assistant｜><think>嗯，我刚刚被系统提醒需要遵循以下内容:"),
-            "工具定义应注入到 <think> 块中"
+            "Tool definitions should be injected into <think> block"
         );
-        assert!(prompt.contains("## 工具调用"));
+        assert!(prompt.contains("## Tool Calls"));
         assert!(prompt.contains("calc"));
         // <think> 块应在最后，位于最后的 user 消息之后
         let think_pos = prompt.find("<｜Assistant｜><think>").unwrap();
-        let last_user_pos = prompt.rfind("第二个问题").unwrap();
+        let last_user_pos = prompt.rfind("Second question").unwrap();
         assert!(
             think_pos > last_user_pos,
-            "<think> 块应在最后的 user 消息之后"
+            "<think> block should be after the last user message"
         );
     }
 
-    // functions / function_call 兼容降级
+    // functions / function_call legacy compat downgrade
 
     #[test]
     fn functions_legacy_to_tools() {
         let body = serde_json::json!({
             "model": "deepseek-default",
-            "messages": [{ "role": "user", "content": "北京天气？" }],
+            "messages": [{ "role": "user", "content": "Beijing天气？" }],
             "functions": [
                 {
                     "name": "get_weather",
-                    "description": "获取天气",
+                    "description": "Get weather",
                     "parameters": { "type": "object", "properties": { "city": { "type": "string" } } }
                 }
             ],
@@ -553,14 +553,14 @@ mod tests {
         });
         let req = parse_json(body).unwrap();
         assert!(req.prompt.contains("get_weather"));
-        assert!(req.prompt.contains("你可以使用以下工具"));
+        assert!(req.prompt.contains("You can use the following tools"));
     }
 
     #[test]
     fn function_call_named_legacy() {
         let body = serde_json::json!({
             "model": "deepseek-default",
-            "messages": [{ "role": "user", "content": "查天气" }],
+            "messages": [{ "role": "user", "content": "Check weather" }],
             "functions": [
                 { "name": "get_weather", "parameters": {} }
             ],
@@ -589,24 +589,24 @@ mod tests {
         assert!(!req.prompt.contains("func_b"));
     }
 
-    // response_format 兼容降级
+    // response_format legacy compat downgrade
 
     #[test]
     fn response_format_json_object() {
         let body = serde_json::json!({
             "model": "deepseek-default",
-            "messages": [{ "role": "user", "content": "输出 JSON" }],
+            "messages": [{ "role": "user", "content": "Output JSON" }],
             "response_format": { "type": "json_object" }
         });
         let req = parse_json(body).unwrap();
-        assert!(req.prompt.contains("请直接输出合法的 JSON 对象"));
+        assert!(req.prompt.contains("Please output a valid JSON object directly"));
     }
 
     #[test]
     fn response_format_json_schema() {
         let body = serde_json::json!({
             "model": "deepseek-default",
-            "messages": [{ "role": "user", "content": "结构化输出" }],
+            "messages": [{ "role": "user", "content": "Structured output" }],
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -616,7 +616,7 @@ mod tests {
             }
         });
         let req = parse_json(body).unwrap();
-        assert!(req.prompt.contains("遵守以下的格式"));
+        assert!(req.prompt.contains("Follow the format below"));
         assert!(req.prompt.contains("person"));
     }
 
@@ -628,7 +628,7 @@ mod tests {
             "response_format": { "type": "text" }
         });
         let req = parse_json(body).unwrap();
-        assert!(!req.prompt.contains("请以"));
+        assert!(!req.prompt.contains("Please output in"));
         assert!(!req.prompt.contains("JSON"));
     }
 }

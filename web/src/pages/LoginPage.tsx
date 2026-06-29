@@ -28,8 +28,8 @@ export function LoginPage() {
           body: JSON.stringify({ password: '__check__' }),
         });
         await res.json().catch(() => ({}));
-        // 403 = "未设置密码" → needs setup
-        // 401 = "密码错误" → login mode
+        // 403 = "password not set" → needs setup
+        // 401 = "wrong password" → login mode
         setNeedsSetup(res.status === 403);
       } catch {
         setNeedsSetup(false);

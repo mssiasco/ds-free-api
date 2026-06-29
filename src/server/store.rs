@@ -1,4 +1,4 @@
-//! 持久化存储 —— Config-based admin/auth 数据 + stats.json 的原子读写
+//! Persistent storage — Config-based admin/auth data + atomic read/write for stats.json
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 use crate::config::Config;
 
-/// 管理 stats.json 的数据
+/// Manages data for stats.json
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct StatsStore {
     pub total_requests: u64,
@@ -19,18 +19,18 @@ pub struct StatsStore {
     pub failed_requests: u64,
     pub total_prompt_tokens: u64,
     pub total_completion_tokens: u64,
-    /// 按模型拆分的统计（重启可恢复）
+    /// Per-model statistics (recoverable across restarts)
     #[serde(default)]
     pub model_stats: std::collections::HashMap<String, ModelStatsData>,
-    /// 按 API Key 拆分的统计（重启可恢复，key 为脱敏后的前缀）
+    /// Per-API-Key statistics (recoverable across restarts, key is the masked prefix)
     #[serde(default)]
     pub key_stats: std::collections::HashMap<String, KeyStatsData>,
-    /// 最近 N 条请求日志（重启可恢复）
+    /// Most recent N request log entries (recoverable across restarts)
     #[serde(default)]
     pub request_logs: Vec<RequestLogData>,
 }
 
-/// 持久化的模型统计数据
+/// Persisted model statistics data
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ModelStatsData {
     pub prompt_tokens: u64,
@@ -38,7 +38,7 @@ pub struct ModelStatsData {
     pub requests: u64,
 }
 
-/// 持久化的 API Key 统计数据
+/// Persisted API Key statistics data
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeyStatsData {
     pub prompt_tokens: u64,
@@ -46,7 +46,7 @@ pub struct KeyStatsData {
     pub requests: u64,
 }
 
-/// 持久化的请求日志条目
+/// Persisted request log entry
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RequestLogData {
     pub timestamp: u64,
@@ -59,7 +59,7 @@ pub struct RequestLogData {
     pub success: bool,
 }
 
-/// 运行时存储管理器（admin + api_keys → Config，stats → stats.json）
+/// Runtime storage manager (admin + api_keys → Config, stats → stats.json)
 pub struct StoreManager {
     config_path: PathBuf,
     config: Arc<RwLock<Config>>,
@@ -75,26 +75,26 @@ impl StoreManager {
                 Ok(content) if !content.trim().is_empty() => {
                     match serde_json::from_str::<StatsStore>(&content) {
                         Ok(s) => {
-                            info!(target: "store", "已加载 stats.json");
+                            info!(target: "store", "Loaded stats.json");
                             s
                         }
                         Err(e) => {
-                            warn!(target: "store", "stats.json 解析失败: {}，使用零值", e);
+                            warn!(target: "store", "Failed to parse stats.json: {}, using zero values", e);
                             StatsStore::default()
                         }
                     }
                 }
                 Ok(_) => {
-                    info!(target: "store", "stats.json 为空，使用零值");
+                    info!(target: "store", "stats.json is empty, using zero values");
                     StatsStore::default()
                 }
                 Err(e) => {
-                    warn!(target: "store", "stats.json 读取失败: {}，使用零值", e);
+                    warn!(target: "store", "Failed to read stats.json: {}, using zero values", e);
                     StatsStore::default()
                 }
             }
         } else {
-            info!(target: "store", "stats.json 不存在，使用零值");
+            info!(target: "store", "stats.json does not exist, using zero values");
             StatsStore::default()
         };
 
@@ -106,18 +106,18 @@ impl StoreManager {
         }
     }
 
-    /// 检查是否已设置密码
+    /// Check if a password has been set
     pub async fn has_password(&self) -> bool {
         !self.config.read().await.admin.password_hash.is_empty()
     }
 
-    /// 验证密码
+    /// Verify password
     pub async fn verify_password(&self, plain: &str) -> bool {
         let guard = self.config.read().await;
         bcrypt::verify(plain, &guard.admin.password_hash).unwrap_or(false)
     }
 
-    /// 获取 JWT 密钥
+    /// Get JWT secret
     pub async fn jwt_secret(&self) -> Option<String> {
         let guard = self.config.read().await;
         if guard.admin.jwt_secret.is_empty() {
@@ -127,21 +127,21 @@ impl StoreManager {
         }
     }
 
-    /// 获取最近一次 JWT 签发时间（用于吊销旧 token）
+    /// Get the most recent JWT issuance time (used to revoke old tokens)
     pub async fn jwt_issued_at(&self) -> Option<u64> {
         let guard = self.config.read().await;
         let iat = guard.admin.jwt_issued_at;
         (iat > 0).then_some(iat)
     }
 
-    /// 更新 jwt_issued_at 并持久化
+    /// Update jwt_issued_at and persist
     pub async fn set_jwt_issued_at(&self, iat: u64) {
         let mut guard = self.config.write().await;
         guard.admin.jwt_issued_at = iat;
         let _ = guard.save(&self.config_path);
     }
 
-    /// 保存 admin 配置（密码哈希、JWT 密钥等）
+    /// Save admin configuration (password hash, JWT secret, etc.)
     pub async fn save_admin(
         &self,
         password_hash: String,
@@ -156,18 +156,18 @@ impl StoreManager {
         Ok(())
     }
 
-    /// 查找 API Key 是否有效
+    /// Check if an API Key is valid
     pub async fn is_valid_api_key(&self, key: &str) -> bool {
         let guard = self.config.read().await;
         guard.api_keys.iter().any(|k| k.key == key)
     }
 
-    /// 加载持久化的统计数据
+    /// Load persisted statistics data
     pub async fn load_stats(&self) -> StatsStore {
         self.stats.read().await.clone()
     }
 
-    /// 保存 stats.json
+    /// Save stats.json
     pub async fn save_stats(&self, store: &StatsStore) -> anyhow::Result<()> {
         let path = self.base_dir.join("stats.json");
         write_json_file(&path, store)?;
@@ -178,13 +178,13 @@ impl StoreManager {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/// 原子写入 JSON 文件：先写 .tmp 再 rename
+/// Atomic write for JSON files: write to .tmp first, then rename
 fn write_json_file<T: Serialize>(path: &Path, data: &T) -> anyhow::Result<()> {
     let tmp_path = path.with_extension("tmp");
     let json = serde_json::to_string_pretty(data)?;
     fs::write(&tmp_path, &json)?;
     fs::rename(&tmp_path, path)?;
-    // 设置文件权限 0600（仅 owner 可读写）
+    // Set file permissions to 0600 (owner read/write only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -194,19 +194,19 @@ fn write_json_file<T: Serialize>(path: &Path, data: &T) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 生成随机 hex 字符串（32 字节 = 64 hex 字符）
+/// Generate a random hex string (32 bytes = 64 hex characters)
 pub fn generate_hex_secret() -> String {
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     hex::encode(&bytes)
 }
 
-/// 对密码进行 bcrypt 哈希
+/// bcrypt hash a password
 pub fn hash_password(plain: &str) -> String {
-    bcrypt::hash(plain, 12).expect("bcrypt hash 不应失败")
+    bcrypt::hash(plain, 12).expect("bcrypt hash should not fail")
 }
 
-// hex 编码辅助（避免额外依赖）
+// hex encoding helper (avoids extra dependency)
 mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()

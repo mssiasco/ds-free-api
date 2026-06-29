@@ -1,6 +1,6 @@
-//! HTTP 错误响应格式 —— 支持 OpenAI 与 Anthropic 兼容错误 JSON
+//! HTTP error response formatting — supports OpenAI and Anthropic compatible error JSON
 //!
-//! 将适配器错误映射为标准错误响应格式。
+//! Maps adapter errors to standard error response formats.
 
 use axum::{
     Json,
@@ -13,7 +13,7 @@ use std::fmt;
 use crate::anthropic_compat::AnthropicCompatError;
 use crate::openai_adapter::OpenAIAdapterError;
 
-/// OpenAI 兼容错误响应体
+/// OpenAI-compatible error response body
 #[derive(Debug, Serialize)]
 pub struct OpenAIErrorBody {
     error: OpenAIErrorDetail,
@@ -27,7 +27,7 @@ struct OpenAIErrorDetail {
     code: &'static str,
 }
 
-/// Anthropic 兼容错误响应体
+/// Anthropic-compatible error response body
 #[derive(Debug, Serialize)]
 pub struct AnthropicErrorBody {
     #[serde(rename = "type")]
@@ -35,16 +35,16 @@ pub struct AnthropicErrorBody {
     message: String,
 }
 
-/// 服务器层错误类型
+/// Server layer error type
 #[derive(Debug)]
 pub enum ServerError {
-    /// OpenAI 适配器错误
+    /// OpenAI adapter error
     Adapter(OpenAIAdapterError),
-    /// Anthropic 兼容层错误
+    /// Anthropic compat layer error
     Anthropic(AnthropicCompatError),
-    /// 未授权（无效 API token）
+    /// Unauthorized (invalid API token)
     Unauthorized,
-    /// 资源不存在
+    /// Resource not found
     NotFound(String),
 }
 
@@ -54,7 +54,7 @@ impl fmt::Display for ServerError {
             Self::Adapter(e) => write!(f, "{}", e),
             Self::Anthropic(e) => write!(f, "{}", e),
             Self::Unauthorized => write!(f, "invalid api token"),
-            Self::NotFound(id) => write!(f, "模型 '{}' 不存在", id),
+            Self::NotFound(id) => write!(f, "Model '{}' not found", id),
         }
     }
 }
@@ -105,7 +105,7 @@ fn openai_error_response(err: &ServerError) -> Response {
             "invalid_request_error",
             "model_not_found",
         ),
-        // Anthropic 错误不会走到这里
+        // Anthropic errors won't reach here
         ServerError::Anthropic(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "server_error",

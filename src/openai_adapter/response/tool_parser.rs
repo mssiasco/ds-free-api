@@ -1,9 +1,9 @@
-//! 工具调用解析 —— 滑动窗口检测 `<tool_calls>...</tool_calls>`，转换为结构化 tool_calls
+//! Tool call parsing —— sliding window detection `<tool_calls>...</tool_calls>`，convert to structured tool_calls
 //!
 //! 算法核心：
-//! - Detecting 状态：维护固定宽度 W 的扫描缓冲区，新 chunk 到来时
-//!   先追加到缓冲区，扫描 `<tool_calls>`（或回退 `<tool_call>`），未找到则释放超出 W 的安全部分
-//! - CollectingXml 状态：检测到标记后收集内容直到 `</tool_calls>`
+//! - Detecting 状态：maintain fixed-width W scan buffer，when new chunk arrives
+//!   append to buffer first，scan for `<tool_calls>`（或回退 `<tool_call>`），release safe portion beyond W if not found
+//! - CollectingXml 状态：after tag detected, collect content until `</tool_calls>`
 //! - Done 状态：工具调用已发出，截断后续内容（防幻觉）
 
 use std::pin::Pin;
@@ -46,7 +46,7 @@ impl TagConfig {
     }
 }
 
-/// 标签字符归一化：`｜`(U+FF5C) → `|`，`▁`(U+2581) → `_`
+/// Tag character normalization：`｜`(U+FF5C) → `|`，`▁`(U+2581) → `_`
 fn norm_tag_char(c: char) -> char {
     match c {
         '\u{FF5C}' => '|',
@@ -55,12 +55,12 @@ fn norm_tag_char(c: char) -> char {
     }
 }
 
-/// 标签字符等价判断
+/// Tag character equivalence check
 fn eq_tag_char(a: char, b: char) -> bool {
     a == b || norm_tag_char(a) == norm_tag_char(b)
 }
 
-/// 模糊匹配标签：在 `haystack` 中查找 `partial`，支持 `｜`↔`|`、`▁`↔`_` 等价
+/// Fuzzy match tag：在 `haystack` 中查找 `partial`，支持 `｜`↔`|`、`▁`↔`_` 等价
 fn fuzzy_match_tag<'a>(haystack: &'a str, partial: &str) -> Option<(usize, &'a str)> {
     let n_chars: Vec<char> = partial.chars().collect();
     let h_chars: Vec<char> = haystack.chars().collect();
@@ -134,7 +134,7 @@ pub(crate) fn find_end_tag_with<'a>(
             let abs = from + pos;
             return Some((abs, &s[abs..abs + close_tag.len()]));
         }
-        // 模糊回退：close_tag 中可能含 ｜/▁ 变体
+        // fuzzy fallback：close_tag may contain ｜/▁  variants
         let close_partial = close_tag.trim_end_matches('>');
         if let Some((pos, matched)) = fuzzy_match_tag(search, close_partial) {
             let abs = from + pos;
@@ -148,7 +148,7 @@ pub(crate) fn find_end_tag_with<'a>(
             let abs = from + pos;
             return Some((abs, &s[abs..abs + end.len()]));
         }
-        // 模糊回退
+        // fuzzy fallback
         let end_partial = end.trim_end_matches('>');
         if let Some((pos, matched)) = fuzzy_match_tag(search, end_partial) {
             let abs = from + pos;
@@ -504,7 +504,7 @@ where
         let mut this = self.project();
 
         if let Some(tool_text) = this.repair_pending.take() {
-            debug!(target: "adapter", "tool_parser 发出修复请求");
+            debug!(target: "adapter", "tool_parser emitting repair request");
             return Poll::Ready(Some(Err(OpenAIAdapterError::ToolCallRepairNeeded(
                 tool_text,
             ))));
@@ -514,7 +514,7 @@ where
             if matches!(&this.state, ToolParseState::CollectingXml { .. })
                 && this.last_keepalive.elapsed() >= KEEPALIVE_INTERVAL
             {
-                trace!(target: "adapter", ">>> keepalive: 发送空工具增量");
+                trace!(target: "adapter", ">>> keepalive: sending empty tool delta");
                 *this.last_keepalive = tokio::time::Instant::now();
                 return Poll::Ready(Some(Ok(ChatCompletionsResponseChunk {
                     id: "chatcmpl-keepalive".into(),
@@ -564,7 +564,7 @@ where
                                 let maybe_tag = find_start_tag_with(buffer, this.tag_config)
                                     .map(|(pos, tag)| (pos, tag.to_string()));
                                 if let Some((pos, start_tag)) = maybe_tag {
-                                    trace!(target: "adapter", ">>> 检测到 start_tag={}, buf_len={}", start_tag, buffer.len());
+                                    trace!(target: "adapter", ">>> detected start_tag={}, buf_len={}", start_tag, buffer.len());
                                     let before = buffer[..pos].to_string();
                                     let rest = std::mem::take(buffer)[pos..].to_string();
                                     if let Some((end_pos, matched_end)) = find_end_tag_with(
@@ -594,7 +594,7 @@ where
                                         let end_abs = end_pos + matched_end.len();
                                         let collected = &rest[..end_abs];
                                         if let Some((calls, _)) = parse_tool_calls(collected) {
-                                            debug!(target: "adapter", "tool_parser 解析出 {} 个工具调用", calls.len());
+                                            debug!(target: "adapter", "tool_parser parsed {} tool calls", calls.len());
                                             choice.delta.content = if before.is_empty() {
                                                 None
                                             } else {
@@ -606,8 +606,8 @@ where
                                             }
                                             *this.state = ToolParseState::Done;
                                         } else {
-                                            trace!(target: "adapter", "tool_parser 解析失败，collected=\n{}", &collected[..collected.len().min(500)]);
-                                            warn!(target: "adapter", "tool_parser 解析失败→请求修复");
+                                            trace!(target: "adapter", "tool_parser parse failed，collected=\n{}", &collected[..collected.len().min(500)]);
+                                            warn!(target: "adapter", "tool_parser parse failed → requesting repair");
                                             let collected = collected.to_string();
                                             if before.is_empty() {
                                                 return Poll::Ready(Some(Err(
@@ -674,7 +674,7 @@ where
                                     let collected = buf[..end_abs].to_string();
                                     let _tail = buf.split_off(end_abs);
                                     if let Some((calls, _)) = parse_tool_calls(&collected) {
-                                        debug!(target: "adapter", "tool_parser 解析出 {} 个工具调用", calls.len());
+                                        debug!(target: "adapter", "tool_parser parsed {} tool calls", calls.len());
                                         choice.delta.content = None;
                                         choice.delta.tool_calls = Some(calls);
                                         if choice.finish_reason == Some("stop") {
@@ -682,8 +682,8 @@ where
                                         }
                                         *this.state = ToolParseState::Done;
                                     } else {
-                                        trace!(target: "adapter", "tool_parser 解析失败(流结束)，collected=\n{}", &collected[..collected.len().min(500)]);
-                                        warn!(target: "adapter", "tool_parser 解析失败→请求修复");
+                                        trace!(target: "adapter", "tool_parser parse failed(流结束)，collected=\n{}", &collected[..collected.len().min(500)]);
+                                        warn!(target: "adapter", "tool_parser parse failed → requesting repair");
                                         return Poll::Ready(Some(Err(
                                             OpenAIAdapterError::ToolCallRepairNeeded(collected),
                                         )));
@@ -718,13 +718,13 @@ where
                             if choice.finish_reason.is_some() {
                                 let flushed = std::mem::take(buf);
                                 if let Some((calls, _)) = parse_tool_calls(&flushed) {
-                                    debug!(target: "adapter", "tool_parser 流结束时解析出 {} 个工具调用", calls.len());
+                                    debug!(target: "adapter", "tool_parser parsed {} tool calls at stream end", calls.len());
                                     choice.delta.tool_calls = Some(calls);
                                     if choice.finish_reason == Some("stop") {
                                         choice.finish_reason = Some("tool_calls");
                                     }
                                 } else {
-                                    warn!(target: "adapter", "tool_parser finish→请求修复");
+                                    warn!(target: "adapter", "tool_parser finish → requesting repair");
                                     *this.state = ToolParseState::Done;
                                     return Poll::Ready(Some(Err(
                                         OpenAIAdapterError::ToolCallRepairNeeded(flushed),
@@ -767,7 +767,7 @@ where
                     }
                     ToolParseState::CollectingXml { buf, start_tag: _ } => {
                         if let Some((calls, _)) = parse_tool_calls(&buf) {
-                            debug!(target: "adapter", "tool_parser 流结束时解析出 {} 个工具调用", calls.len());
+                            debug!(target: "adapter", "tool_parser parsed {} tool calls at stream end", calls.len());
                             let chunk = make_end_chunk(
                                 this.model,
                                 Delta {
@@ -778,7 +778,7 @@ where
                             );
                             return Poll::Ready(Some(Ok(chunk)));
                         }
-                        warn!(target: "adapter", "tool_parser 流结束→请求修复");
+                        warn!(target: "adapter", "tool_parser stream end → requesting repair");
                         return Poll::Ready(Some(Err(OpenAIAdapterError::ToolCallRepairNeeded(
                             buf,
                         ))));
@@ -805,21 +805,21 @@ mod tests {
 
     #[test]
     fn parse_json_tool_calls() {
-        let xml = tool(r#"[{"name": "get_weather", "arguments": {"city": "北京"}}]"#);
+        let xml = tool(r#"[{"name": "get_weather", "arguments": {"city": "Beijing"}}]"#);
         let (calls, remaining) = parse_tool_calls(&xml).unwrap();
         assert!(remaining.is_empty());
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].function.as_ref().unwrap().name, "get_weather");
         assert_eq!(
             calls[0].function.as_ref().unwrap().arguments,
-            r#"{"city":"北京"}"#
+            r#"{"city":"Beijing"}"#
         );
     }
 
     #[test]
     fn parse_json_with_surrounding_text() {
         let xml = format!(
-            "{TOOL_CALL_START}\n\t以下是工具调用：\n\t[{{\"name\": \"f\", \"arguments\": {{}}}}]\n\t{TOOL_CALL_END}"
+            "{TOOL_CALL_START}\n\tHere is the tool call：\n\t[{{\"name\": \"f\", \"arguments\": {{}}}}]\n\t{TOOL_CALL_END}"
         );
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);
@@ -881,7 +881,7 @@ mod tests {
 
     #[test]
     fn parse_tool_calls_with_unquoted_keys() {
-        let xml = tool(r#"[{name: "get_weather", arguments: {city: "北京"}}]"#);
+        let xml = tool(r#"[{name: "get_weather", arguments: {city: "Beijing"}}]"#);
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);
     }
@@ -903,7 +903,7 @@ mod tests {
     #[test]
     fn parse_tool_calls_inside_code_fence_skipped() {
         let xml = format!(
-            "示例：\n```json\n{TOOL_CALL_START}[{{\"name\": \"get_weather\", \"arguments\": {{}}}}]{TOOL_CALL_END}\n```"
+            "Example：\n```json\n{TOOL_CALL_START}[{{\"name\": \"get_weather\", \"arguments\": {{}}}}]{TOOL_CALL_END}\n```"
         );
         assert!(parse_tool_calls(&xml).is_none());
     }
@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn parse_tool_calls_single_object() {
-        let xml = tool(r#"{"name": "get_weather", "arguments": {"city": "北京"}}"#);
+        let xml = tool(r#"{"name": "get_weather", "arguments": {"city": "Beijing"}}"#);
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);
     }
@@ -946,7 +946,7 @@ mod tests {
     #[test]
     fn parse_tool_calls_single_object_with_surrounding_text() {
         let xml = format!(
-            "{TOOL_CALL_START}以下是工具调用：{{\"name\": \"f\", \"arguments\": {{}}}}{TOOL_CALL_END}"
+            "{TOOL_CALL_START}Here is the tool call：{{\"name\": \"f\", \"arguments\": {{}}}}{TOOL_CALL_END}"
         );
         let (_calls, remaining) = parse_tool_calls(&xml).unwrap();
         assert_eq!(remaining, "");
@@ -954,7 +954,7 @@ mod tests {
 
     #[test]
     fn parse_tool_calls_single_object_unquoted_keys() {
-        let xml = tool(r#"{name: "get_weather", arguments: {city: "北京"}}"#);
+        let xml = tool(r#"{name: "get_weather", arguments: {city: "Beijing"}}"#);
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);
     }
@@ -971,7 +971,7 @@ mod tests {
         // <|tool▁calls▁begin|> 正常标签，但结束标签用 <|tool_calls▁end｜>
         // （ASCII _ + ▁ + 全角 ｜），验证模糊匹配能识别
         let xml = format!(
-            r#"{TOOL_CALL_START}[{{"name": "get_weather", "arguments": {{"city": "北京"}}}}]<|tool_calls▁end｜>"#
+            r#"{TOOL_CALL_START}[{{"name": "get_weather", "arguments": {{"city": "Beijing"}}}}]<|tool_calls▁end｜>"#
         );
         let (calls, _) = parse_tool_calls(&xml).unwrap();
         assert_eq!(calls.len(), 1);

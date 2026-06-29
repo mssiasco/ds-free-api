@@ -1,7 +1,7 @@
-//! 运行日志 —— 自定义 log::Log 实现，三路输出 + 文件轮转
+//! Runtime logging — custom log::Log implementation, three-way output + file rotation
 //!
-//! 三路：stderr（终端可见）+ 内存环形缓冲区（API 可查）+ 文件（持久化）
-//! 文件轮转：单文件 10MB，保留 3 个历史文件，总上限 ~40MB
+//! Three-way: stderr (terminal visible) + in-memory ring buffer (API queryable) + file (persistent)
+//! File rotation: 10MB per file, 3 history files retained, ~40MB total limit
 
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
@@ -12,14 +12,14 @@ use chrono::Local;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
-/// 环形缓冲区容量
+/// Ring buffer capacity
 const BUFFER_CAPACITY: usize = 2000;
-/// 单个日志文件最大字节数（10MB）
+/// Maximum bytes per log file (10MB)
 const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
-/// 保留的历史日志文件数
+/// Number of historical log files to retain
 const MAX_HISTORY_FILES: usize = 3;
 
-/// 单条运行日志
+/// Single runtime log entry
 #[derive(Serialize, Clone, Debug)]
 pub struct RuntimeLogEntry {
     pub timestamp: String,
@@ -28,17 +28,17 @@ pub struct RuntimeLogEntry {
     pub message: String,
 }
 
-/// 自定义 Logger
+/// Custom Logger
 pub struct DualLogger {
-    /// 内存环形缓冲区
+    /// In-memory ring buffer
     buffer: Mutex<VecDeque<RuntimeLogEntry>>,
-    /// 当前日志文件（std::sync::Mutex 用于 log 路径的非阻塞写入）
+    /// Current log file (std::sync::Mutex for non-blocking writes in the log path)
     file: std::sync::Mutex<File>,
-    /// 日志文件路径
+    /// Log file path
     log_path: String,
-    /// 最大日志级别
+    /// Maximum log level
     max_level: log::LevelFilter,
-    /// 是否启用彩色输出
+    /// Whether to enable colored output
     use_color: bool,
 }
 
@@ -61,7 +61,7 @@ impl DualLogger {
             .create(true)
             .append(true)
             .open(log_path)
-            .expect("无法打开日志文件");
+            .expect("Failed to open log file");
 
         Self {
             buffer: Mutex::new(VecDeque::with_capacity(BUFFER_CAPACITY)),
@@ -119,7 +119,7 @@ impl DualLogger {
     }
 }
 
-/// 根据日志级别返回 ANSI 颜色码（仅用于 stderr）
+/// Return ANSI color code based on log level (used for stderr only)
 fn color_for_level(level: &str) -> &'static str {
     match level {
         "ERROR" => "\x1b[31m",
@@ -146,7 +146,7 @@ impl log::Log for DualLogger {
         let target = record.target().to_string();
         let message = format!("{}", record.args());
 
-        // 1. 写 stderr（终端输出，彩色级别）
+        // 1. Write to stderr (terminal output, colored level)
         if self.use_color {
             eprintln!(
                 "[\x1b[2m{} \x1b[0m{}{}\x1b[0m\x1b[2m  {}\x1b[0m] {}",
@@ -159,14 +159,14 @@ impl log::Log for DualLogger {
         } else {
             eprintln!("[{} {:5}  {}] {}", timestamp, level, target, message);
         }
-        // 2. 写文件
+        // 2. Write to file
         let file_line = format!("[{} {:5}  {}] {}\n", timestamp, level, target, message);
         if let Ok(mut file_guard) = self.file.lock() {
             let _ = file_guard.write_all(file_line.as_bytes());
             let _ = file_guard.flush();
         }
 
-        // 3. 写环形缓冲区（try_lock 避免阻塞 log 路径）
+        // 3. Write to ring buffer (try_lock to avoid blocking the log path)
         let entry = RuntimeLogEntry {
             timestamp,
             level,
@@ -188,10 +188,10 @@ impl log::Log for DualLogger {
     }
 }
 
-/// 全局 Logger 引用
+/// Global Logger reference
 static GLOBAL_LOGGER: std::sync::OnceLock<Arc<DualLogger>> = std::sync::OnceLock::new();
 
-/// 初始化自定义 Logger，替换 env_logger
+/// Initialize the custom Logger, replacing env_logger
 pub fn init(log_path: &str) {
     let max_level = match std::env::var("RUST_LOG") {
         Ok(ref v) if !v.is_empty() => parse_level(v),
@@ -199,16 +199,16 @@ pub fn init(log_path: &str) {
     };
 
     let logger = Arc::new(DualLogger::new(log_path, max_level));
-    GLOBAL_LOGGER.set(logger.clone()).expect("Logger 已初始化");
+    GLOBAL_LOGGER.set(logger.clone()).expect("Logger already initialized");
 
-    // Arc::into_inner 需要 Arc 引用计数为 1，但 GLOBAL_LOGGER 持有一份
-    // 所以用 Box::new 包装 Arc clone
+    // Arc::into_inner requires Arc reference count to be 1, but GLOBAL_LOGGER holds one
+    // So we wrap an Arc clone in Box::new
     let boxed: Box<dyn log::Log> = Box::new(LoggerWrapper { inner: logger });
-    log::set_boxed_logger(boxed).expect("Logger 设置失败");
+    log::set_boxed_logger(boxed).expect("Failed to set logger");
     log::set_max_level(max_level);
 }
 
-/// 包装 Arc<DualLogger> 实现 Log（因为 set_boxed_logger 需要 Box<dyn Log>）
+/// Wrapper around Arc<DualLogger> implementing Log (because set_boxed_logger requires Box<dyn Log>)
 struct LoggerWrapper {
     inner: Arc<DualLogger>,
 }
@@ -244,8 +244,8 @@ fn parse_level(s: &str) -> log::LevelFilter {
     max_level
 }
 
-/// 查询运行日志（分页，从最新往旧倒序）
+/// Query runtime logs (paginated, newest-to-oldest order)
 pub async fn query_logs(offset: usize, limit: usize) -> (usize, Vec<RuntimeLogEntry>) {
-    let logger = GLOBAL_LOGGER.get().expect("Logger 未初始化");
+    let logger = GLOBAL_LOGGER.get().expect("Logger not initialized");
     logger.query_logs(offset, limit).await
 }

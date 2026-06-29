@@ -125,7 +125,7 @@ export function ConfigPage() {
         setConfig(fresh);
       }
     } catch (e: unknown) {
-      setMessage({ type: 'err', text: `保存失败: ${e instanceof Error ? e.message : e}` });
+      setMessage({ type: 'err', text: `Save failed: ${e instanceof Error ? e.message : e}` });
     } finally {
       setSaving(false);
     }

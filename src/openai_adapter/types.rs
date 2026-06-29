@@ -1,4 +1,4 @@
-//! OpenAI 协议类型定义 —— 请求与响应结构
+//! OpenAI protocol type definitions — request and response structures
 //!
 //! 原则：接口层面全对齐，无法实现的字段解析后忽略。
 
@@ -20,10 +20,10 @@
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// 请求类型
+// Request types
 // ============================================================================
 
-/// POST /v1/chat/completions 请求体
+/// POST /v1/chat/completions request body
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionsRequest {
     pub model: String,
@@ -103,14 +103,14 @@ pub struct ChatCompletionsRequest {
     pub _extra: serde_json::Value,
 }
 
-/// 音频输出配置（顶层 audio 参数）
+/// 音频Output configuration（顶层 audio 参数）
 #[derive(Debug, Deserialize, Clone)]
 pub struct AudioRequest {
     pub format: String,
     pub voice: serde_json::Value,
 }
 
-/// 预测输出
+/// Prediction output
 #[derive(Debug, Deserialize, Clone)]
 pub struct Prediction {
     #[serde(rename = "type")]
@@ -118,7 +118,7 @@ pub struct Prediction {
     pub content: String,
 }
 
-/// 网页搜索选项
+/// Web search options
 #[derive(Debug, Deserialize, Clone)]
 pub struct WebSearchOptions {
     #[serde(default)]
@@ -146,7 +146,7 @@ pub struct ApproximateLocation {
     pub timezone: Option<String>,
 }
 
-/// 对话消息
+/// Conversation message
 #[derive(Debug, Deserialize, Clone)]
 pub struct Message {
     pub role: String,
@@ -174,7 +174,7 @@ pub enum MessageContent {
     Parts(Vec<ContentPart>),
 }
 
-/// 多模态内容块
+/// Multimodal content block
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 pub struct ContentPart {
     #[serde(rename = "type")]
@@ -236,14 +236,14 @@ pub struct ToolCall {
     pub index: u32,
 }
 
-/// 函数调用对象
+/// Function call object
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
     pub name: String,
     pub arguments: String,
 }
 
-/// 工具定义
+/// Tool definition
 #[derive(Debug, Deserialize, Clone)]
 pub struct Tool {
     #[serde(rename = "type")]
@@ -302,7 +302,7 @@ pub struct FunctionCallNamed {
     pub name: String,
 }
 
-/// tool_choice 参数
+/// tool_choice parameter
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum ToolChoice {
@@ -350,7 +350,7 @@ pub struct NamedCustom {
     pub name: String,
 }
 
-/// response_format 参数
+/// response_format parameter
 #[derive(Debug, Deserialize, Clone)]
 pub struct ResponseFormat {
     #[serde(rename = "type")]
@@ -363,7 +363,7 @@ pub(crate) fn default_true() -> bool {
     true
 }
 
-/// stream_options 参数
+/// stream_options parameter
 #[derive(Debug, Deserialize)]
 pub struct StreamOptions {
     #[serde(default)]
@@ -382,10 +382,10 @@ impl Default for StreamOptions {
 }
 
 // ============================================================================
-// 响应类型
+// Response types
 // ============================================================================
 
-/// 非流式 chat completion 响应
+/// Non-streaming chat completion response
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionsResponse {
     pub id: String,
@@ -429,7 +429,7 @@ pub struct MessageResponse {
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
-/// 流式 chunk
+/// Streaming chunk
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionsResponseChunk {
     pub id: String,
@@ -476,7 +476,7 @@ pub struct Delta {
     pub obfuscation: Option<String>,
 }
 
-/// Token 用量
+/// Token usage
 #[derive(Debug, Serialize, Clone)]
 pub struct Usage {
     pub prompt_tokens: u32,
@@ -488,7 +488,7 @@ pub struct Usage {
     pub completion_tokens_details: Option<CompletionTokensDetails>,
 }
 
-/// 模型列表项
+/// Model list item
 #[derive(Debug, Serialize)]
 pub struct OpenAIModel {
     pub id: String,
@@ -518,14 +518,14 @@ pub struct OpenAIModel {
     pub max_completion_tokens: Option<u32>,
 }
 
-/// 模型列表响应
+/// Model list response
 #[derive(Debug, Serialize)]
 pub struct OpenAIModelList {
     pub object: &'static str,
     pub data: Vec<OpenAIModel>,
 }
 
-/// 音频响应对象
+/// Audio response object
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AudioResponse {
     pub id: String,
@@ -551,7 +551,7 @@ pub struct UrlCitation {
     pub url: String,
 }
 
-/// 日志概率信息
+/// Log probability info
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Logprobs {
     #[serde(default)]
@@ -575,7 +575,7 @@ pub struct TopLogprob {
     pub bytes: Option<Vec<u8>>,
 }
 
-/// 自定义工具调用内容
+/// Custom tool call content
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CustomToolCall {
     pub name: String,
@@ -583,7 +583,7 @@ pub struct CustomToolCall {
     pub input: Option<serde_json::Value>,
 }
 
-/// Prompt tokens 细分
+/// Prompt tokens breakdown
 #[derive(Debug, Serialize, Clone)]
 pub struct PromptTokensDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -592,7 +592,7 @@ pub struct PromptTokensDetails {
     pub cached_tokens: Option<u32>,
 }
 
-/// Completion tokens 细分
+/// Completion tokens breakdown
 #[derive(Debug, Serialize, Clone)]
 pub struct CompletionTokensDetails {
     #[serde(skip_serializing_if = "Option::is_none")]

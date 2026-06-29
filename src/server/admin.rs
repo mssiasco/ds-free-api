@@ -1,4 +1,4 @@
-//! 管理 API 路由处理器 —— 登录/设置密码、账号池状态、请求统计、模型列表、配置查看
+//! Admin API route handlers — login/set password, account pool status, request statistics, model list, config view
 
 use axum::{
     body::Body,
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::handlers::AppState;
 use crate::config::Config;
 
-// ── 请求/响应类型 ──────────────────────────────────────────────────────────
+// ── Request/Response types ──────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct SetupRequest {
@@ -107,7 +107,7 @@ pub struct AccountView {
     pub password: String,
 }
 
-// ── 脱敏 ─────────────────────────────────────────────────────────────────
+// ── Masking ─────────────────────────────────────────────────────────────────
 
 fn mask_config(config: &Config) -> AdminConfigResponse {
     AdminConfigResponse {
@@ -164,24 +164,24 @@ fn mask_config(config: &Config) -> AdminConfigResponse {
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
-/// POST /admin/api/setup — 首次设置密码
+/// POST /admin/api/setup — first-time password setup
 pub(crate) async fn admin_setup(
     State(state): State<AppState>,
     body: axum::body::Bytes,
 ) -> Response {
     let req: SetupRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("请求格式错误: {}", e)),
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("Invalid request format: {}", e)),
     };
 
     match super::auth::setup_admin(&state.store, &state.login_limiter, &req.password).await {
         Ok(token) => json_response(&LoginResponse { token }),
         Err(msg) => {
-            let status = if msg.contains("已设置") {
+            let status = if msg.contains("already set") {
                 StatusCode::FORBIDDEN
-            } else if msg.contains("次数过多") {
+            } else if msg.contains("too many attempts") {
                 StatusCode::TOO_MANY_REQUESTS
-            } else if msg.contains("至少 6 位") {
+            } else if msg.contains("at least 6 characters") {
                 StatusCode::BAD_REQUEST
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -197,15 +197,15 @@ pub(crate) async fn admin_login(
 ) -> Response {
     let req: LoginRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("请求格式错误: {}", e)),
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("Invalid request format: {}", e)),
     };
 
     match super::auth::login_admin(&state.store, &state.login_limiter, &req.password).await {
         Ok(token) => json_response(&LoginResponse { token }),
         Err(msg) => {
-            let status = if msg.contains("次数过多") {
+            let status = if msg.contains("too many attempts") {
                 StatusCode::TOO_MANY_REQUESTS
-            } else if msg.contains("未设置密码") {
+            } else if msg.contains("password not set") {
                 StatusCode::FORBIDDEN
             } else {
                 StatusCode::UNAUTHORIZED
@@ -255,14 +255,14 @@ pub(crate) async fn admin_config(State(state): State<AppState>) -> Response {
     json_response(&config_view)
 }
 
-/// PUT /admin/api/config — 更新并热重载配置
+/// PUT /admin/api/config — update and hot-reload configuration
 pub(crate) async fn admin_put_config(
     State(state): State<AppState>,
     body: axum::body::Bytes,
 ) -> Response {
     let mut new_config: Config = match serde_json::from_slice(&body) {
         Ok(c) => c,
-        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("JSON 解析失败: {}", e)),
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, &format!("JSON parse failed: {}", e)),
     };
 
     // Validate
@@ -284,7 +284,7 @@ pub(crate) async fn admin_put_config(
                 a.password.clone_from(&existing.password);
             }
         }
-        // Admin 配置：空的 password_hash/jwt_secret 保留现有值（前端不返回这些字段）
+        // Admin config: empty password_hash/jwt_secret keep existing values (frontend doesn't return these fields)
         if new_config.admin.password_hash.is_empty() {
             new_config
                 .admin
@@ -297,19 +297,19 @@ pub(crate) async fn admin_put_config(
                 .jwt_secret
                 .clone_from(&current.admin.jwt_secret);
         }
-        // 密码修改：前端发 old_password + new_password
+        // Password change: frontend sends old_password + new_password
         if !new_config.admin.old_password.is_empty() || !new_config.admin.new_password.is_empty() {
             if new_config.admin.old_password.is_empty() || new_config.admin.new_password.is_empty()
             {
                 return error_response(
                     StatusCode::BAD_REQUEST,
-                    "修改密码需要同时提供旧密码和新密码",
+                    "Changing password requires both old and new passwords",
                 );
             }
             if !bcrypt::verify(&new_config.admin.old_password, &current.admin.password_hash)
                 .unwrap_or(false)
             {
-                return error_response(StatusCode::BAD_REQUEST, "旧密码不正确");
+                return error_response(StatusCode::BAD_REQUEST, "Old password is incorrect");
             }
             new_config.admin.password_hash =
                 super::store::hash_password(&new_config.admin.new_password);
@@ -325,7 +325,7 @@ pub(crate) async fn admin_put_config(
         if let Err(e) = guard.save(&state.config_path) {
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("保存失败: {}", e),
+                &format!("Save failed: {}", e),
             );
         }
     }
@@ -348,7 +348,7 @@ fn default_limit() -> usize {
     50
 }
 
-/// GET /admin/api/logs — 获取最近的请求日志
+/// GET /admin/api/logs — get recent request logs
 pub(crate) async fn admin_logs(
     Query(query): Query<LogsQuery>,
     State(state): State<AppState>,
@@ -369,7 +369,7 @@ fn default_runtime_limit() -> usize {
     100
 }
 
-/// GET /admin/api/runtime-logs — 分页查询运行日志
+/// GET /admin/api/runtime-logs — paginated query for runtime logs
 pub(crate) async fn admin_runtime_logs(Query(query): Query<RuntimeLogsQuery>) -> Response {
     let (total, logs) = super::runtime_log::query_logs(query.offset, query.limit).await;
     json_response(&serde_json::json!({

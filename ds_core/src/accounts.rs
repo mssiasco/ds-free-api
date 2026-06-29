@@ -1,6 +1,6 @@
-//! 账号模块 —— 账号池、HTTP 客户端、PoW 求解器
+//! Accounts module — account pool, HTTP client, PoW solver
 //!
-//! chat 模块通过此门面访问账号相关能力。
+//! The chat module accesses account-related capabilities through this facade.
 
 mod client;
 pub(crate) mod pool;
@@ -16,9 +16,9 @@ pub use client::{ClientError, CompletionPayload, DsClient, StopStreamPayload};
 pub use pool::{AccountGuard, AccountPool, AccountStatus, PoolError};
 pub use pow::{PowError, PowSolver};
 
-/// 账号模块的统一入口
+/// Unified entry point for the accounts module
 ///
-/// 封装 AccountPool、DsClient、PowSolver，向上层（chat、DsCore）提供统一接口。
+/// Wraps AccountPool, DsClient, PowSolver, providing a unified interface to upper layers (chat, DsCore).
 pub struct Accounts {
     pool: Arc<AccountPool>,
     client: RwLock<DsClient>,
@@ -26,9 +26,9 @@ pub struct Accounts {
 }
 
 impl Accounts {
-    /// 创建并初始化账号模块
+    /// Create and initialize the accounts module
     ///
-    /// 步骤：创建 HTTP 客户端 → 加载 WASM → 初始化账号池 → 启动恢复任务
+    /// Steps: create HTTP client → load WASM → initialize account pool → start recovery task
     pub async fn new(
         config: &DsCoreConfig,
         account_creds: Vec<AccountConfig>,
@@ -51,12 +51,12 @@ impl Accounts {
             .await
             .map_err(|e| match e {
                 PoolError::AllAccountsFailed => {
-                    CoreError::ProviderError("所有账号初始化失败".to_string())
+                    CoreError::ProviderError("All accounts failed to initialize".to_string())
                 }
                 PoolError::Client(e) => CoreError::ProviderError(e.to_string()),
                 PoolError::Pow(e) => CoreError::ProofOfWorkFailed(e),
                 PoolError::Validation(msg) => {
-                    CoreError::ProviderError(format!("配置错误: {}", msg))
+                    CoreError::ProviderError(format!("Configuration error: {}", msg))
                 }
                 other => CoreError::ProviderError(other.to_string()),
             })?;
@@ -72,29 +72,29 @@ impl Accounts {
         }))
     }
 
-    // ── 供 chat 模块使用 ────────────────────────────────────────────
+    // ── For use by the chat module ──────────────────────────────────────
 
-    /// 获取账号（等待最多 timeout_ms 毫秒）
+    /// Get an account (wait up to timeout_ms milliseconds)
     pub async fn get_account_with_wait(&self, timeout_ms: u64) -> Option<AccountGuard> {
         self.pool.get_account_with_wait(timeout_ms).await
     }
 
-    /// 获取账号（立即返回）
+    /// Get an account (return immediately)
     pub fn get_account(&self) -> Option<AccountGuard> {
         self.pool.get_account()
     }
 
-    /// 标记账号 Error
+    /// Mark account as Error
     pub fn mark_error(&self, email_or_mobile: &str) {
         self.pool.mark_error(email_or_mobile);
     }
 
-    /// 获取 HTTP 客户端（供 GuardedStream 构造使用）
+    /// Get the HTTP client (for use in constructing GuardedStream)
     pub async fn client_clone(&self) -> DsClient {
         self.client.read().await.clone()
     }
 
-    /// 创建 session
+    /// Create a session
     pub async fn create_session(&self, token: &str) -> Result<String, CoreError> {
         self.client
             .read()
@@ -104,7 +104,7 @@ impl Accounts {
             .map_err(Into::into)
     }
 
-    /// 删除 session
+    /// Delete a session
     pub async fn delete_session(&self, token: &str, session_id: &str) -> Result<(), CoreError> {
         self.client
             .read()
@@ -114,7 +114,7 @@ impl Accounts {
             .map_err(Into::into)
     }
 
-    /// 发起 completion（返回原始 SSE 字节流）
+    /// Initiate a completion (returns raw SSE byte stream)
     pub async fn completion(
         &self,
         token: &str,
@@ -132,7 +132,7 @@ impl Accounts {
             .map_err(Into::into)
     }
 
-    /// 取消流式输出
+    /// Cancel streaming output
     pub async fn stop_stream(
         &self,
         token: &str,
@@ -146,7 +146,7 @@ impl Accounts {
             .map_err(Into::into)
     }
 
-    /// 上传文件（含 PoW 计算与轮询）
+    /// Upload a file (with PoW computation and polling)
     pub async fn upload_and_poll(
         &self,
         token: &str,
@@ -182,14 +182,14 @@ impl Accounts {
                     "SUCCESS" => {
                         log::debug!(
                             target: "ds_core::accounts",
-                            "req={} 文件上传成功: file_id={}, tokens={:?}, name={}",
+                            "req={} File upload succeeded: file_id={}, tokens={:?}, name={}",
                             request_id, file_id, file.token_usage, file.file_name
                         );
                         return Ok(file_id);
                     }
                     "FAILED" => {
                         return Err(CoreError::ProviderError(format!(
-                            "文件上传失败: {}",
+                            "File upload failed: {}",
                             file.file_name
                         )));
                     }
@@ -198,10 +198,10 @@ impl Accounts {
             }
             tokio::time::sleep(tokio::time::Duration::from_millis(UPLOAD_POLL_INTERVAL_MS)).await;
         }
-        Err(CoreError::ProviderError("文件处理超时".into()))
+        Err(CoreError::ProviderError("File processing timed out".into()))
     }
 
-    /// 计算指定 target_path 的 PoW header
+    /// Compute PoW header for the specified target_path
     pub async fn compute_pow_for_target(
         &self,
         token: &str,
@@ -225,7 +225,7 @@ impl Accounts {
         Ok(result.to_header())
     }
 
-    // ── 供 DsCore 门面使用 ──────────────────────────────────────────
+    // ── For use by the DsCore facade ────────────────────────────────────
 
     pub fn account_statuses(&self) -> Vec<AccountStatus> {
         self.pool.account_statuses()
